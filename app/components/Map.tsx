@@ -356,12 +356,6 @@ export default function Map() {
           </div>
         </div>
       )}
-
-      <div className="absolute bottom-1 left-1/2 z-[1000] -translate-x-1/2 rounded bg-white/80 px-2 py-0.5 text-[10px]">
-        <a href="http://webservice.recruit.co.jp/" target="_blank" rel="noopener noreferrer" className="underline">
-          Powered by ホットペッパーグルメ Webサービス
-        </a>
-      </div>
     </div>
   );
 }
