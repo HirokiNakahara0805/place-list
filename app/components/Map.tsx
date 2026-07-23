@@ -9,9 +9,10 @@ import {
   useMap,
   type MapMouseEvent,
 } from '@vis.gl/react-google-maps';
+import { createClient } from '@/lib/supabase/client';
 
 type Place = {
-  id: number;
+  id: string;
   lat: number;
   lng: number;
   name: string;
@@ -29,8 +30,8 @@ type Shop = {
   genre: string;
 };
 
-const STORAGE_KEY = 'place-list:places';
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
+const COLUMNS = 'id, name, address, memo, lat, lng, visited';
 
 // 画像を縮小してbase64にする（送信量を抑えるため）
 const fileToCompressedBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
@@ -84,8 +85,12 @@ const dotStyle = (visited: boolean): React.CSSProperties => ({
 });
 
 function MapInner() {
+  const [supabase] = useState(() => createClient());
+
   const [places, setPlaces] = useState<Place[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [keyword, setKeyword] = useState('');
   const [shops, setShops] = useState<Shop[]>([]);
@@ -104,21 +109,23 @@ function MapInner() {
   } | null>(null);
   const [memo, setMemo] = useState('');
   const [panTarget, setPanTarget] = useState<{ lat: number; lng: number } | null>(null);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
 
+  // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setPlaces(JSON.parse(raw));
-    } catch {}
-    setLoaded(true);
-  }, []);
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('places')
+        .select(COLUMNS)
+        .order('created_at', { ascending: false });
 
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(places));
-  }, [places, loaded]);
+      if (error) setLoadError(error.message);
+      else setPlaces((data ?? []) as Place[]);
+      setLoaded(true);
+    };
+    load();
+  }, [supabase]);
 
   const locate = () => {
     if (!navigator.geolocation) {
@@ -197,27 +204,62 @@ function MapInner() {
     setMemo('');
   };
 
-  const save = () => {
-    if (!pending) return;
-    setPlaces((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        lat: pending.lat,
-        lng: pending.lng,
-        name: pending.name,
+  // 追加：DBに書いてから、返ってきた行を画面に足す
+  const save = async () => {
+    if (!pending || pending.name.trim() === '') return;
+    setSaving(true);
+    setNotice('');
+
+    const { data, error } = await supabase
+      .from('places')
+      .insert({
+        name: pending.name.trim(),
         address: pending.address,
         memo: memo.trim(),
+        lat: pending.lat,
+        lng: pending.lng,
         visited: false,
-      },
-    ]);
+      })
+      .select(COLUMNS)
+      .single();
+
+    setSaving(false);
+
+    if (error) {
+      setNotice(`保存に失敗しました: ${error.message}`);
+      return;
+    }
+    if (data) setPlaces((prev) => [data as Place, ...prev]);
     reset();
   };
 
-  const toggleVisited = (id: number) =>
-    setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, visited: !p.visited } : p)));
+  // 訪問済みの切替：先に画面を変え、失敗したら戻す
+  const toggleVisited = async (id: string) => {
+    const target = places.find((p) => p.id === id);
+    if (!target) return;
+    const next = !target.visited;
 
-  const remove = (id: number) => setPlaces((prev) => prev.filter((p) => p.id !== id));
+    setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, visited: next } : p)));
+
+    const { error } = await supabase.from('places').update({ visited: next }).eq('id', id);
+    if (error) {
+      setPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, visited: !next } : p)));
+      setNotice('更新に失敗しました');
+    }
+  };
+
+  // 削除：先に画面から消し、失敗したら戻す
+  const remove = async (id: string) => {
+    const snapshot = places;
+    setPlaces((prev) => prev.filter((p) => p.id !== id));
+    if (openId === id) setOpenId(null);
+
+    const { error } = await supabase.from('places').delete().eq('id', id);
+    if (error) {
+      setPlaces(snapshot);
+      setNotice('削除に失敗しました');
+    }
+  };
 
   const onMapClick = (e: MapMouseEvent) => {
     const c = e.detail.latLng;
@@ -306,15 +348,11 @@ function MapInner() {
           <button
             onClick={() => fileRef.current?.click()}
             disabled={extracting}
-            className="flex-1 rounded bg-red-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="flex-1 rounded bg-rose-400 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {extracting ? '読み取り中...' : 'スクショから追加'}
           </button>
-          <button
-            onClick={locate}
-            className="rounded border px-3 py-2 text-sm"
-            title="現在地へ移動"
-          >
+          <button onClick={locate} className="rounded border px-3 py-2 text-sm" title="現在地へ移動">
             現在地
           </button>
         </div>
@@ -329,7 +367,7 @@ function MapInner() {
           />
           <button
             onClick={() => runSearch(keyword)}
-            className="rounded bg-black px-3 py-1 text-sm text-white disabled:opacity-40"
+            className="rounded bg-sky-500 px-3 py-1 text-sm text-white disabled:opacity-40"
             disabled={searching || keyword.trim() === ''}
           >
             {searching ? '...' : '検索'}
@@ -367,7 +405,13 @@ function MapInner() {
         <p className="mb-2 text-sm font-bold">
           行きたい店（残り {places.filter((p) => !p.visited).length} / {places.length}）
         </p>
-        {places.length === 0 && <p className="text-xs text-gray-500">スクショか検索で追加</p>}
+
+        {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
+        {loadError && <p className="text-xs text-red-600">{loadError}</p>}
+        {loaded && !loadError && places.length === 0 && (
+          <p className="text-xs text-gray-500">スクショか検索で追加</p>
+        )}
+
         <ul className="space-y-1">
           {places.map((p) => (
             <li key={p.id} className="flex items-center gap-2 text-sm">
@@ -415,10 +459,10 @@ function MapInner() {
           <div className="flex gap-2">
             <button
               onClick={save}
-              className="flex-1 rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-40"
-              disabled={pending.name.trim() === ''}
+              className="flex-1 rounded bg-sky-500 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+              disabled={saving || pending.name.trim() === ''}
             >
-              追加
+              {saving ? '保存中...' : '追加'}
             </button>
             <button onClick={reset} className="rounded border px-3 py-1.5 text-sm">
               キャンセル
