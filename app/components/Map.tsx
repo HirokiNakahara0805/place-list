@@ -348,11 +348,15 @@ function MapInner() {
           <button
             onClick={() => fileRef.current?.click()}
             disabled={extracting}
-            className="flex-1 rounded bg-rose-400 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="flex-1 rounded bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {extracting ? '読み取り中...' : 'スクショから追加'}
           </button>
-          <button onClick={locate} className="rounded border px-3 py-2 text-sm" title="現在地へ移動">
+          <button
+            onClick={locate}
+            className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+            title="現在地へ移動"
+          >
             現在地
           </button>
         </div>
@@ -367,7 +371,7 @@ function MapInner() {
           />
           <button
             onClick={() => runSearch(keyword)}
-            className="rounded bg-sky-500 px-3 py-1 text-sm text-white disabled:opacity-40"
+            className="rounded bg-green-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-40"
             disabled={searching || keyword.trim() === ''}
           >
             {searching ? '...' : '検索'}
