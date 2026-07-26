@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 
 type Place = {
   id: string;
+  place_id: string | null;
   lat: number;
   lng: number;
   name: string;
@@ -33,7 +34,7 @@ type Shop = {
 type SheetState = 'closed' | 'half' | 'full';
 
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
-const COLUMNS = 'id, name, address, memo, lat, lng, visited';
+const COLUMNS = 'id, place_id, name, address, memo, lat, lng, visited';
 
 // 画像を縮小してbase64にする（送信量を抑えるため）
 const fileToCompressedBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
@@ -77,6 +78,15 @@ function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   return null;
 }
 
+// 地図の実体を親に渡す（表示範囲を検索に使うため）
+function CaptureMap({ onMap }: { onMap: (m: google.maps.Map | null) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    onMap(map);
+  }, [map, onMap]);
+  return null;
+}
+
 const dotStyle = (visited: boolean): React.CSSProperties => ({
   width: 18,
   height: 18,
@@ -115,6 +125,7 @@ function MapInner() {
     lng: number;
     name: string;
     address: string;
+    placeId: string | null;
   } | null>(null);
   const [memo, setMemo] = useState('');
   const [panTarget, setPanTarget] = useState<{ lat: number; lng: number } | null>(null);
@@ -122,6 +133,7 @@ function MapInner() {
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
 
   const [sheet, setSheet] = useState<SheetState>('closed');
+  const [mapObj, setMapObj] = useState<google.maps.Map | null>(null);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
@@ -164,7 +176,20 @@ function MapInner() {
     setSearching(true);
     setSearched(false);
     try {
-      const res = await fetch(`/api/search?keyword=${encodeURIComponent(q)}`);
+      const params = new URLSearchParams({ keyword: q });
+
+      // いま見ている範囲を優先して探す（短い店名が全国の候補に埋もれるのを防ぐ）
+      const b = mapObj?.getBounds();
+      if (b) {
+        const sw = b.getSouthWest();
+        const ne = b.getNorthEast();
+        params.set('swLat', String(sw.lat()));
+        params.set('swLng', String(sw.lng()));
+        params.set('neLat', String(ne.lat()));
+        params.set('neLng', String(ne.lng()));
+      }
+
+      const res = await fetch(`/api/search?${params.toString()}`);
       const data = await res.json();
       setShops(data.shops ?? []);
     } catch {
@@ -204,7 +229,7 @@ function MapInner() {
   };
 
   const pickShop = (s: Shop) => {
-    setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address });
+    setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address, placeId: s.id });
     setPanTarget({ lat: s.lat, lng: s.lng });
     setMemo('');
     setShops([]);
@@ -228,6 +253,7 @@ function MapInner() {
     const { data, error } = await supabase
       .from('places')
       .insert({
+        place_id: pending.placeId,
         name: pending.name.trim(),
         address: pending.address,
         memo: memo.trim(),
@@ -241,7 +267,12 @@ function MapInner() {
     setSaving(false);
 
     if (error) {
-      setNotice(`保存に失敗しました: ${error.message}`);
+      // 23505 = 一意制約違反（同じ店を二重に登録しようとした）
+      setNotice(
+        error.code === '23505'
+          ? 'この店はすでに登録されています'
+          : `保存に失敗しました: ${error.message}`
+      );
       return;
     }
     if (data) setPlaces((prev) => [data as Place, ...prev]);
@@ -279,12 +310,13 @@ function MapInner() {
   const onMapClick = (e: MapMouseEvent) => {
     const c = e.detail.latLng;
     if (!c) return;
-    setPending({ lat: c.lat, lng: c.lng, name: '', address: '' });
+    setPending({ lat: c.lat, lng: c.lng, name: '', address: '', placeId: null });
     setOpenId(null);
     setSheet('closed');
   };
 
   const notVisited = places.filter((p) => !p.visited).length;
+  const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
 
   return (
     <div className="fixed inset-0 overflow-hidden">
@@ -301,6 +333,7 @@ function MapInner() {
         onClick={onMapClick}
         style={{ width: '100%', height: '100%' }}
       >
+        <CaptureMap onMap={setMapObj} />
         <PanTo target={panTarget} />
 
         {places.map((p) => (
@@ -407,18 +440,29 @@ function MapInner() {
 
         {shops.length > 0 && (
           <ul className="mt-2 max-h-[40dvh] overflow-y-auto overscroll-contain border-t pt-2 md:max-h-56">
-            {shops.map((s) => (
-              <li key={s.id}>
-                <button
-                  onClick={() => pickShop(s)}
-                  className="w-full rounded px-1 py-1.5 text-left text-sm hover:bg-gray-100"
-                >
-                  <span className="font-medium">{s.name}</span>
-                  <br />
-                  <span className="text-xs text-gray-500">{s.address}</span>
-                </button>
-              </li>
-            ))}
+            {shops.map((s) => {
+              const already = registered.has(s.id);
+              return (
+                <li key={s.id}>
+                  <button
+                    onClick={() => pickShop(s)}
+                    disabled={already}
+                    className="w-full rounded px-1 py-1.5 text-left text-sm hover:bg-gray-100 disabled:cursor-default disabled:hover:bg-transparent"
+                  >
+                    <span className={already ? 'font-medium text-gray-400' : 'font-medium'}>
+                      {s.name}
+                    </span>
+                    {already && (
+                      <span className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600">
+                        登録済み
+                      </span>
+                    )}
+                    <br />
+                    <span className="text-xs text-gray-500">{s.address}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -8,13 +8,50 @@ type GooglePlace = {
   primaryTypeDisplayName?: { text?: string };
 };
 
+type SearchBody = {
+  textQuery: string;
+  languageCode: string;
+  regionCode: string;
+  maxResultCount: number;
+  locationBias?: {
+    rectangle: {
+      low: { latitude: number; longitude: number };
+      high: { latitude: number; longitude: number };
+    };
+  };
+};
+
 export async function GET(req: NextRequest) {
-  const keyword = req.nextUrl.searchParams.get('keyword')?.trim();
+  const sp = req.nextUrl.searchParams;
+  const keyword = sp.get('keyword')?.trim();
   if (!keyword) return NextResponse.json({ shops: [] });
 
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) {
     return NextResponse.json({ shops: [], error: 'GOOGLE_PLACES_API_KEY が未設定です' });
+  }
+
+  const body: SearchBody = {
+    textQuery: keyword,
+    languageCode: 'ja',
+    regionCode: 'JP',
+    maxResultCount: 20,
+  };
+
+  // 地図の表示範囲を「この辺を優先して探す」というヒントとして渡す
+  const swLat = Number(sp.get('swLat'));
+  const swLng = Number(sp.get('swLng'));
+  const neLat = Number(sp.get('neLat'));
+  const neLng = Number(sp.get('neLng'));
+  const hasBias = [swLat, swLng, neLat, neLng].every((v) => Number.isFinite(v));
+
+  if (hasBias && swLat < neLat && swLng < neLng) {
+    body.locationBias = {
+      rectangle: {
+        low: { latitude: swLat, longitude: swLng },
+        high: { latitude: neLat, longitude: neLng },
+      },
+    };
   }
 
   try {
@@ -31,12 +68,7 @@ export async function GET(req: NextRequest) {
           'places.primaryTypeDisplayName',
         ].join(','),
       },
-      body: JSON.stringify({
-        textQuery: keyword,
-        languageCode: 'ja',
-        regionCode: 'JP',
-        maxResultCount: 20,
-      }),
+      body: JSON.stringify(body),
     });
 
     const data = await res.json();
