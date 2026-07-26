@@ -78,6 +78,12 @@ function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   return null;
 }
 
+// Googleマップで開くためのURL。place_id があれば店を正確に指定できる
+const mapsUrl = (p: Place) => {
+  const base = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+  return p.place_id ? `${base}&query_place_id=${encodeURIComponent(p.place_id)}` : base;
+};
+
 // 地図の実体を親に渡す（表示範囲を検索に使うため）
 function CaptureMap({ onMap }: { onMap: (m: google.maps.Map | null) => void }) {
   const map = useMap();
@@ -358,7 +364,15 @@ function MapInner() {
               <div className="text-sm">
                 <strong>{p.name}</strong>
                 {p.address && <div className="text-xs text-gray-600">{p.address}</div>}
-                {p.memo && <div className="mt-1">{p.memo}</div>}
+                {p.memo && <div className="mt-1 whitespace-pre-wrap">{p.memo}</div>}
+                <a
+                  href={mapsUrl(p)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-block text-xs text-blue-600 underline"
+                >
+                  Googleマップで開く
+                </a>
               </div>
             </InfoWindow>
           ))}
@@ -507,10 +521,10 @@ function MapInner() {
 
           <ul className="space-y-2 md:space-y-1">
             {places.map((p) => (
-              <li key={p.id} className="flex items-center gap-2 text-sm">
+              <li key={p.id} className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 shrink-0"
+                  className="mt-1 h-4 w-4 shrink-0"
                   checked={p.visited}
                   onChange={() => toggleVisited(p.id)}
                 />
@@ -520,17 +534,24 @@ function MapInner() {
                     setOpenId(p.id);
                     setSheet('closed');
                   }}
-                  className={
-                    p.visited
-                      ? 'min-w-0 flex-1 truncate text-left text-gray-400 line-through'
-                      : 'min-w-0 flex-1 truncate text-left'
-                  }
+                  className="min-w-0 flex-1 text-left"
                 >
-                  {p.name}
+                  <span
+                    className={
+                      p.visited
+                        ? 'block truncate text-gray-400 line-through'
+                        : 'block truncate'
+                    }
+                  >
+                    {p.name}
+                  </span>
+                  {p.memo && (
+                    <span className="block truncate text-xs text-gray-500">{p.memo}</span>
+                  )}
                 </button>
                 <button
                   onClick={() => remove(p.id)}
-                  className="shrink-0 text-xs text-gray-400 hover:text-red-500"
+                  className="mt-0.5 shrink-0 text-xs text-gray-400 hover:text-red-500"
                 >
                   削除
                 </button>
