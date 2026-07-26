@@ -19,6 +19,7 @@ type Place = {
   name: string;
   address: string;
   memo: string;
+  url: string;
   visited: boolean;
 };
 
@@ -34,7 +35,7 @@ type Shop = {
 type SheetState = 'closed' | 'half' | 'full';
 
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
-const COLUMNS = 'id, place_id, name, address, memo, lat, lng, visited';
+const COLUMNS = 'id, place_id, name, address, memo, url, lat, lng, visited';
 
 // 画像を縮小してbase64にする（送信量を抑えるため）
 const fileToCompressedBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
@@ -77,6 +78,9 @@ function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   }, [map, target]);
   return null;
 }
+
+// http(s) で始まるものだけリンクとして扱う
+const isHttp = (u: string) => /^https?:\/\//i.test(u.trim());
 
 // Googleマップで開くためのURL。place_id があれば店を正確に指定できる
 const mapsUrl = (p: Place) => {
@@ -141,6 +145,9 @@ function MapInner() {
   const [sheet, setSheet] = useState<SheetState>('closed');
   const [mapObj, setMapObj] = useState<google.maps.Map | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [url, setUrl] = useState('');
+  const [editing, setEditing] = useState<Place | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
@@ -264,16 +271,47 @@ function MapInner() {
     setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address, placeId: s.id });
     setPanTarget({ lat: s.lat, lng: s.lng });
     setMemo('');
+    setUrl('');
     setShops([]);
     setSearched(false);
     setKeyword('');
     setNotice('');
     setSheet('closed');
+    setEditing(null);
   };
 
   const reset = () => {
     setPending(null);
     setMemo('');
+    setUrl('');
+  };
+
+  const openEdit = (p: Place) => {
+    setEditing({ ...p });
+    setOpenId(null);
+    setPending(null);
+  };
+
+  // 編集を保存する
+  const saveEdit = async () => {
+    if (!editing || editing.name.trim() === '') return;
+    setEditSaving(true);
+
+    const patch = {
+      name: editing.name.trim(),
+      memo: editing.memo.trim(),
+      url: editing.url.trim(),
+    };
+
+    const { error } = await supabase.from('places').update(patch).eq('id', editing.id);
+    setEditSaving(false);
+
+    if (error) {
+      setNotice(`更新に失敗しました: ${error.message}`);
+      return;
+    }
+    setPlaces((prev) => prev.map((p) => (p.id === editing.id ? { ...p, ...patch } : p)));
+    setEditing(null);
   };
 
   // 追加：DBに書いてから、返ってきた行を画面に足す
@@ -289,6 +327,7 @@ function MapInner() {
         name: pending.name.trim(),
         address: pending.address,
         memo: memo.trim(),
+        url: url.trim(),
         lat: pending.lat,
         lng: pending.lng,
         visited: false,
@@ -391,14 +430,32 @@ function MapInner() {
                 <strong>{p.name}</strong>
                 {p.address && <div className="text-xs text-gray-600">{p.address}</div>}
                 {p.memo && <div className="mt-1 whitespace-pre-wrap">{p.memo}</div>}
-                <a
-                  href={mapsUrl(p)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-block text-xs text-blue-600 underline"
-                >
-                  Googleマップで開く
-                </a>
+                <div className="mt-2 flex flex-col items-start gap-1">
+                  {isHttp(p.url) && (
+                    <a
+                      href={p.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 underline"
+                    >
+                      リンクを開く
+                    </a>
+                  )}
+                  <a
+                    href={mapsUrl(p)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 underline"
+                  >
+                    Googleマップで開く
+                  </a>
+                  <button
+                    onClick={() => openEdit(p)}
+                    className="text-xs text-gray-600 underline"
+                  >
+                    編集
+                  </button>
+                </div>
               </div>
             </InfoWindow>
           ))}
@@ -595,6 +652,13 @@ function MapInner() {
                     <span className="block truncate text-xs text-gray-500">{p.memo}</span>
                   )}
                 </button>
+                <button
+                  onClick={() => openEdit(p)}
+                  aria-label="編集"
+                  className="mt-0.5 shrink-0 text-xs text-gray-400 hover:text-sky-600"
+                >
+                  編集
+                </button>
                 {confirmId === p.id ? (
                   <span className="mt-0.5 flex shrink-0 items-center gap-1">
                     <button
@@ -658,10 +722,17 @@ function MapInner() {
           />
           {pending.address && <p className="mb-2 text-xs text-gray-500">{pending.address}</p>}
           <input
-            className="mb-3 w-full rounded border px-2 py-2 text-sm md:py-1"
+            className="mb-2 w-full rounded border px-2 py-2 text-sm md:py-1"
             placeholder="メモ"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
+          />
+          <input
+            className="mb-3 w-full rounded border px-2 py-2 text-sm md:py-1"
+            placeholder="リンク（InstagramのURLなど）"
+            inputMode="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
           />
           <div className="flex gap-2">
             <button
@@ -672,6 +743,53 @@ function MapInner() {
               {saving ? '保存中...' : '追加'}
             </button>
             <button onClick={reset} className="rounded border px-3 py-2 text-sm md:py-1.5">
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 編集パネル ===== */}
+      {editing && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-20 rounded-t-2xl bg-white p-4 shadow-[0_-2px_12px_rgba(0,0,0,.2)] md:inset-x-auto md:bottom-auto md:right-4 md:top-4 md:w-72 md:rounded-lg md:shadow-lg"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+        >
+          <p className="mb-2 text-sm font-bold">編集</p>
+          <input
+            className="mb-1 w-full rounded border px-2 py-2 text-sm md:py-1"
+            placeholder="店名（必須）"
+            value={editing.name}
+            onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+            autoFocus
+          />
+          {editing.address && <p className="mb-2 text-xs text-gray-500">{editing.address}</p>}
+          <textarea
+            className="mb-2 w-full resize-none rounded border px-2 py-2 text-sm"
+            rows={3}
+            placeholder="メモ"
+            value={editing.memo}
+            onChange={(e) => setEditing({ ...editing, memo: e.target.value })}
+          />
+          <input
+            className="mb-3 w-full rounded border px-2 py-2 text-sm md:py-1"
+            placeholder="リンク（InstagramのURLなど）"
+            inputMode="url"
+            value={editing.url}
+            onChange={(e) => setEditing({ ...editing, url: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={saveEdit}
+              className="flex-1 rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40 md:py-1.5"
+              disabled={editSaving || editing.name.trim() === ''}
+            >
+              {editSaving ? '保存中...' : '保存'}
+            </button>
+            <button
+              onClick={() => setEditing(null)}
+              className="rounded border px-3 py-2 text-sm md:py-1.5"
+            >
               キャンセル
             </button>
           </div>
