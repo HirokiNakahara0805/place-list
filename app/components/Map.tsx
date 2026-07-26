@@ -33,6 +33,7 @@ type Shop = {
 };
 
 type SheetState = 'closed' | 'half' | 'full';
+type SortKey = 'new' | 'near' | 'name';
 
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 const COLUMNS = 'id, place_id, name, address, memo, url, lat, lng, visited';
@@ -78,6 +79,24 @@ function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   }, [map, target]);
   return null;
 }
+
+// 2点間の距離（メートル）。地球を半径6371kmの球とみなす簡易計算
+const distanceM = (
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+) => {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+};
+
+const formatDistance = (m: number) =>
+  m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(1)}km`;
 
 // 郵便番号や番地は地図を見れば分かるので、町名までに短くする
 const shortAddress = (a: string) => {
@@ -158,6 +177,8 @@ function MapInner() {
   const [url, setUrl] = useState('');
   const [editing, setEditing] = useState<Place | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('new');
+  const [onlyUnvisited, setOnlyUnvisited] = useState(false);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
@@ -401,6 +422,18 @@ function MapInner() {
   };
 
   const notVisited = places.filter((p) => !p.visited).length;
+
+  // 絞り込み → 並べ替え の順に適用する
+  const visible = places
+    .filter((p) => (onlyUnvisited ? !p.visited : true))
+    .slice()
+    .sort((a, b) => {
+      if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
+      if (sortKey === 'near' && myPos) {
+        return distanceM(myPos, a) - distanceM(myPos, b);
+      }
+      return 0; // 'new' は読み込み順（新しい順）のまま
+    });
   const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
 
   return (
@@ -632,14 +665,60 @@ function MapInner() {
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-3"
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
         >
+          {loaded && !loadError && places.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-1 border-b pb-2 text-xs">
+              {(
+                [
+                  ['new', '新しい順'],
+                  ['near', '近い順'],
+                  ['name', '名前順'],
+                ] as [SortKey, string][]
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setSortKey(key);
+                    if (key === 'near' && !myPos) locate();
+                  }}
+                  className={
+                    sortKey === key
+                      ? 'rounded bg-gray-800 px-2 py-1 text-white'
+                      : 'rounded border px-2 py-1 text-gray-600'
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                onClick={() => setOnlyUnvisited((v) => !v)}
+                className={
+                  onlyUnvisited
+                    ? 'ml-auto rounded bg-gray-800 px-2 py-1 text-white'
+                    : 'ml-auto rounded border px-2 py-1 text-gray-600'
+                }
+              >
+                未訪問のみ
+              </button>
+            </div>
+          )}
+
+          {sortKey === 'near' && !myPos && (
+            <p className="mb-2 text-xs text-gray-500">
+              現在地を取得しています。許可されていない場合は「現在地」を押してください。
+            </p>
+          )}
+
           {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
           {loadError && <p className="text-xs text-red-600">{loadError}</p>}
           {loaded && !loadError && places.length === 0 && (
             <p className="text-xs text-gray-500">スクショか検索で追加</p>
           )}
+          {loaded && !loadError && places.length > 0 && visible.length === 0 && (
+            <p className="text-xs text-gray-500">条件に合う店がありません</p>
+          )}
 
           <ul className="space-y-2 md:space-y-1">
-            {places.map((p) => (
+            {visible.map((p) => (
               <li key={p.id} className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -664,9 +743,14 @@ function MapInner() {
                   >
                     {p.name}
                   </span>
-                  {p.memo && (
-                    <span className="block truncate text-xs text-gray-500">{p.memo}</span>
-                  )}
+                  <span className="block truncate text-xs text-gray-500">
+                    {myPos && (
+                      <span className="mr-2 text-gray-400">
+                        {formatDistance(distanceM(myPos, p))}
+                      </span>
+                    )}
+                    {p.memo}
+                  </span>
                 </button>
                 <button
                   onClick={() => openEdit(p)}
