@@ -34,6 +34,7 @@ type Shop = {
 
 type SheetState = 'closed' | 'half' | 'full';
 type SortKey = 'new' | 'near' | 'name';
+type Tag = { id: string; name: string };
 
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 const COLUMNS = 'id, place_id, name, address, memo, url, lat, lng, visited';
@@ -108,6 +109,16 @@ const shortAddress = (a: string) => {
   return (m ? m[0] : t).trim();
 };
 
+// 住所の先頭から都道府県を取り出す（自動分類用）
+const prefOf = (addr: string) => {
+  const t = addr
+    .replace(/^日本、?\s*/, '')
+    .replace(/〒?\s*\d{3}-?\d{4}\s*/, '')
+    .trim();
+  const m = t.match(/^(北海道|東京都|京都府|大阪府|.{2,3}?県)/);
+  return m ? m[1] : '';
+};
+
 // http(s) で始まるものだけリンクとして扱う
 const isHttp = (u: string) => /^https?:\/\//i.test(u.trim());
 
@@ -141,6 +152,46 @@ const sheetHeight: Record<SheetState, string> = {
   half: 'h-[45dvh]',
   full: 'h-[80dvh]',
 };
+
+// 登録・編集フォームのタグ選択（選ぶだけ。作成は一覧の「タグを管理」から）
+function TagPicker({
+  tags,
+  selected,
+  onToggle,
+}: {
+  tags: Tag[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (tags.length === 0) {
+    return (
+      <p className="mb-3 text-xs text-gray-400">
+        タグは一覧の「絞り込み」→「タグを管理」から作成できます
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-3">
+      <p className="mb-1 text-[11px] text-gray-500">タグ</p>
+      <ul className="max-h-32 overflow-y-auto overscroll-contain rounded border">
+        {tags.map((t) => (
+          <li key={t.id} className="border-b last:border-b-0">
+            <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0"
+                checked={selected.includes(t.id)}
+                onChange={() => onToggle(t.id)}
+              />
+              <span className="min-w-0 truncate">{t.name}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function MapInner() {
   const [supabase] = useState(() => createClient());
@@ -177,6 +228,17 @@ function MapInner() {
   const [url, setUrl] = useState('');
   const [editing, setEditing] = useState<Place | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [placeTags, setPlaceTags] = useState<Record<string, string[]>>({});
+  const [pendingTagIds, setPendingTagIds] = useState<string[]>([]);
+  const [editTagIds, setEditTagIds] = useState<string[]>([]);
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedPrefs, setSelectedPrefs] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [manageTags, setManageTags] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
   // 同じ店の評価を何度も取りに行かないためのキャッシュ（セッション内）
@@ -197,17 +259,70 @@ function MapInner() {
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase
-        .from('places')
-        .select(COLUMNS)
-        .order('created_at', { ascending: false });
+      const [placeRes, tagRes, linkRes] = await Promise.all([
+        supabase.from('places').select(COLUMNS).order('created_at', { ascending: false }),
+        supabase.from('tags').select('id, name').order('name'),
+        supabase.from('place_tags').select('place_id, tag_id'),
+      ]);
 
-      if (error) setLoadError(error.message);
-      else setPlaces((data ?? []) as Place[]);
+      if (placeRes.error) setLoadError(placeRes.error.message);
+      else setPlaces((placeRes.data ?? []) as Place[]);
+
+      if (!tagRes.error) setTags((tagRes.data ?? []) as Tag[]);
+
+      if (!linkRes.error) {
+        const map: Record<string, string[]> = {};
+        for (const row of (linkRes.data ?? []) as { place_id: string; tag_id: string }[]) {
+          (map[row.place_id] ||= []).push(row.tag_id);
+        }
+        setPlaceTags(map);
+      }
+
       setLoaded(true);
     };
     load();
   }, [supabase]);
+
+  // タグを新規作成する
+  const createTag = async () => {
+    const name = newTagName.trim();
+    if (name === '') return;
+    if (tags.some((t) => t.name === name)) {
+      setNewTagName('');
+      return;
+    }
+    const { data, error } = await supabase
+      .from('tags')
+      .insert({ name })
+      .select('id, name')
+      .single();
+    if (error || !data) {
+      setNotice(`タグを作成できませんでした: ${error?.message ?? ''}`);
+      return;
+    }
+    setTags((prev) => [...prev, data as Tag].sort((a, b) => a.name.localeCompare(b.name, 'ja')));
+    setNewTagName('');
+  };
+
+  // タグそのものを削除する（全店から外れる）
+  const deleteTag = async (id: string) => {
+    const snapshotTags = tags;
+    const snapshotLinks = placeTags;
+    setTags((prev) => prev.filter((t) => t.id !== id));
+    setPlaceTags((prev) => {
+      const next: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(prev)) next[k] = v.filter((x) => x !== id);
+      return next;
+    });
+    setSelectedTagIds((prev) => prev.filter((x) => x !== id));
+
+    const { error } = await supabase.from('tags').delete().eq('id', id);
+    if (error) {
+      setTags(snapshotTags);
+      setPlaceTags(snapshotLinks);
+      setNotice('タグを削除できませんでした');
+    }
+  };
 
   // 吹き出しを開いたとき、その店の評価をまだ持っていなければ取得する
   useEffect(() => {
@@ -366,10 +481,12 @@ function MapInner() {
     setPending(null);
     setMemo('');
     setUrl('');
+    setPendingTagIds([]);
   };
 
   const openEdit = (p: Place) => {
     setEditing({ ...p });
+    setEditTagIds(placeTags[p.id] ?? []);
     setOpenId(null);
     setPoi(null);
     setPending(null);
@@ -394,6 +511,26 @@ function MapInner() {
       return;
     }
     setPlaces((prev) => prev.map((p) => (p.id === editing.id ? { ...p, ...patch } : p)));
+
+    // タグは差分だけを追加・削除する
+    const before = placeTags[editing.id] ?? [];
+    const added = editTagIds.filter((t) => !before.includes(t));
+    const removed = before.filter((t) => !editTagIds.includes(t));
+
+    if (added.length > 0) {
+      await supabase
+        .from('place_tags')
+        .insert(added.map((tag_id) => ({ place_id: editing.id, tag_id })));
+    }
+    if (removed.length > 0) {
+      await supabase
+        .from('place_tags')
+        .delete()
+        .eq('place_id', editing.id)
+        .in('tag_id', removed);
+    }
+    setPlaceTags((prev) => ({ ...prev, [editing.id]: editTagIds }));
+
     setEditing(null);
   };
 
@@ -429,7 +566,17 @@ function MapInner() {
       );
       return;
     }
-    if (data) setPlaces((prev) => [data as Place, ...prev]);
+    if (data) {
+      const created = data as Place;
+      setPlaces((prev) => [created, ...prev]);
+
+      if (pendingTagIds.length > 0) {
+        const rows = pendingTagIds.map((tag_id) => ({ place_id: created.id, tag_id }));
+        const { error: linkError } = await supabase.from('place_tags').insert(rows);
+        if (linkError) setNotice('タグの保存に失敗しました');
+        else setPlaceTags((prev) => ({ ...prev, [created.id]: pendingTagIds }));
+      }
+    }
     reset();
   };
 
@@ -458,7 +605,13 @@ function MapInner() {
     if (error) {
       setPlaces(snapshot);
       setNotice('削除に失敗しました');
+      return;
     }
+    setPlaceTags((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   // 地図タップ：店舗アイコンのときだけ登録に進む。何もない場所は無視する
@@ -534,6 +687,14 @@ function MapInner() {
   // 絞り込み → 並べ替え の順に適用する
   const visible = places
     .filter((p) => (onlyUnvisited ? !p.visited : true))
+    .filter((p) =>
+      selectedPrefs.length === 0 ? true : selectedPrefs.includes(prefOf(p.address))
+    )
+    .filter((p) => {
+      if (selectedTagIds.length === 0) return true;
+      const own = placeTags[p.id] ?? [];
+      return selectedTagIds.every((t) => own.includes(t)); // 選んだタグを全部持つもの
+    })
     .slice()
     .sort((a, b) => {
       if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
@@ -543,6 +704,8 @@ function MapInner() {
       return 0; // 'new' は読み込み順（新しい順）のまま
     });
   const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
+  const prefs = Array.from(new Set(places.map((p) => prefOf(p.address)).filter(Boolean))).sort();
+  const filterCount = selectedPrefs.length + selectedTagIds.length;
 
   return (
     <div className="fixed inset-0 overflow-hidden">
@@ -862,6 +1025,127 @@ function MapInner() {
               >
                 未訪問のみ
               </button>
+
+              <button
+                onClick={() => setFilterOpen((v) => !v)}
+                className={
+                  filterCount > 0
+                    ? 'w-full rounded bg-gray-800 px-2 py-1 text-white'
+                    : 'w-full rounded border px-2 py-1 text-gray-600'
+                }
+              >
+                絞り込み{filterCount > 0 ? `（${filterCount}）` : ''} {filterOpen ? '▲' : '▼'}
+              </button>
+
+              {filterOpen && (
+                <div className="w-full rounded border bg-gray-50 p-2">
+                  {prefs.length > 0 && (
+                    <>
+                      <p className="mb-1 text-[11px] text-gray-500">都道府県（住所から自動）</p>
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {prefs.map((pref) => (
+                          <button
+                            key={pref}
+                            onClick={() =>
+                              setSelectedPrefs((prev) =>
+                                prev.includes(pref)
+                                  ? prev.filter((x) => x !== pref)
+                                  : [...prev, pref]
+                              )
+                            }
+                            className={
+                              selectedPrefs.includes(pref)
+                                ? 'rounded-full bg-gray-800 px-2.5 py-1 text-white'
+                                : 'rounded-full border bg-white px-2.5 py-1 text-gray-600'
+                            }
+                          >
+                            {pref}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="mb-1 flex items-center justify-between">
+                    <p className="text-[11px] text-gray-500">タグ（すべて含むもの）</p>
+                    <button
+                      onClick={() => setManageTags((v) => !v)}
+                      className="text-[11px] text-gray-500 underline"
+                    >
+                      {manageTags ? '完了' : 'タグを管理'}
+                    </button>
+                  </div>
+
+                  {manageTags && (
+                    <div className="mb-2 flex gap-1">
+                      <input
+                        className="min-w-0 flex-1 rounded border bg-white px-2 py-1 text-xs"
+                        placeholder="新しいタグ（例: ラーメン）"
+                        value={newTagName}
+                        onChange={(e) => setNewTagName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && createTag()}
+                      />
+                      <button
+                        onClick={createTag}
+                        disabled={newTagName.trim() === ''}
+                        className="shrink-0 rounded border bg-white px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                      >
+                        作成
+                      </button>
+                    </div>
+                  )}
+
+                  {tags.length === 0 ? (
+                    <p className="text-[11px] text-gray-400">
+                      「タグを管理」からタグを作成できます
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {tags.map((t) => (
+                        <span key={t.id} className="inline-flex items-center">
+                          <button
+                            onClick={() =>
+                              setSelectedTagIds((prev) =>
+                                prev.includes(t.id)
+                                  ? prev.filter((x) => x !== t.id)
+                                  : [...prev, t.id]
+                              )
+                            }
+                            className={
+                              selectedTagIds.includes(t.id)
+                                ? 'rounded-full bg-gray-800 px-2.5 py-1 text-white'
+                                : 'rounded-full border bg-white px-2.5 py-1 text-gray-600'
+                            }
+                          >
+                            {t.name}
+                          </button>
+                          {manageTags && (
+                            <button
+                              onClick={() => deleteTag(t.id)}
+                              aria-label={`${t.name}を削除`}
+                              className="ml-0.5 text-[11px] text-red-500"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {filterCount > 0 && (
+                    <button
+                      onClick={() => {
+                        setSelectedPrefs([]);
+                        setSelectedTagIds([]);
+                      }}
+                      className="mt-2 text-[11px] text-gray-600 underline"
+                    >
+                      絞り込みを解除
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -919,6 +1203,14 @@ function MapInner() {
                         {formatDistance(distanceM(myPos, p))}
                       </span>
                     )}
+                    {(placeTags[p.id] ?? []).map((tid) => {
+                      const t = tags.find((x) => x.id === tid);
+                      return t ? (
+                        <span key={tid} className="mr-1 text-gray-400">
+                          #{t.name}
+                        </span>
+                      ) : null;
+                    })}
                     {p.memo}
                   </span>
                 </button>
@@ -1006,6 +1298,15 @@ function MapInner() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
+          <TagPicker
+            tags={tags}
+            selected={pendingTagIds}
+            onToggle={(id) =>
+              setPendingTagIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+              )
+            }
+          />
           <div className="flex gap-2">
             <button
               onClick={save}
@@ -1051,6 +1352,15 @@ function MapInner() {
             inputMode="url"
             value={editing.url}
             onChange={(e) => setEditing({ ...editing, url: e.target.value })}
+          />
+          <TagPicker
+            tags={tags}
+            selected={editTagIds}
+            onToggle={(id) =>
+              setEditTagIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+              )
+            }
           />
           <div className="flex gap-2">
             <button
