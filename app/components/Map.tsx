@@ -179,6 +179,11 @@ function MapInner() {
   const [editSaving, setEditSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
+  // 同じ店の評価を何度も取りに行かないためのキャッシュ（セッション内）
+  const [ratings, setRatings] = useState<
+    Record<string, { rating: number | null; count: number | null }>
+  >({});
+
   const [poi, setPoi] = useState<{
     id: string;
     name: string;
@@ -203,6 +208,32 @@ function MapInner() {
     };
     load();
   }, [supabase]);
+
+  // 吹き出しを開いたとき、その店の評価をまだ持っていなければ取得する
+  useEffect(() => {
+    const target =
+      (openId ? places.find((x) => x.id === openId)?.place_id : null) ?? poi?.id ?? null;
+    if (!target || ratings[target]) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/place?id=${encodeURIComponent(target)}`);
+        const data = await res.json();
+        if (cancelled || !data.place) return;
+        setRatings((prev) => ({
+          ...prev,
+          [target]: { rating: data.place.rating, count: data.place.ratingCount },
+        }));
+      } catch {
+        // 取得できなくても表示しないだけなので黙って無視する
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openId, poi, places, ratings]);
 
   const openMore = () => setSheet((s) => (s === 'closed' ? 'half' : 'full'));
   const closeMore = () => setSheet((s) => (s === 'full' ? 'half' : 'closed'));
@@ -310,20 +341,23 @@ function MapInner() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // 検索結果を選ぶ：地図を移動して吹き出しを出す（登録は吹き出しのボタンから）
   const pickShop = (s: Shop) => {
-    // 吹き出しが開いたままだと地図が元の位置に引き戻されるので先に閉じる
     setOpenId(null);
-    setPoi(null);
-    setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address, placeId: s.id });
-    setPanTarget({ lat: s.lat, lng: s.lng });
-    setMemo('');
-    setUrl('');
-    setShops([]);
-    setSearched(false);
-    setKeyword('');
+    setPending(null);
+    setEditing(null);
     setNotice('');
     setSheet('closed');
-    setEditing(null);
+    setPoi({
+      id: s.id,
+      name: s.name,
+      address: s.address,
+      lat: s.lat,
+      lng: s.lng,
+      rating: ratings[s.id]?.rating ?? null,
+      ratingCount: ratings[s.id]?.count ?? null,
+    });
+    setPanTarget({ lat: s.lat, lng: s.lng });
   };
 
   const reset = () => {
@@ -454,6 +488,10 @@ function MapInner() {
 
       setNotice('');
       setPoi(data.place);
+      setRatings((prev) => ({
+        ...prev,
+        [data.place.id]: { rating: data.place.rating, count: data.place.ratingCount },
+      }));
     } catch {
       setNotice('店舗情報の取得に失敗しました');
     }
@@ -471,6 +509,11 @@ function MapInner() {
     });
     setPanTarget({ lat: poi.lat, lng: poi.lng });
     setPoi(null);
+    setMemo('');
+    setUrl('');
+    setShops([]);
+    setSearched(false);
+    setKeyword('');
   };
 
   // 見つからなかった店を、地図の中心に手動で登録する
@@ -538,6 +581,17 @@ function MapInner() {
               onCloseClick={() => setOpenId(null)}
             >
               <div className="pt-0.5 text-sm">
+                {p.place_id && ratings[p.place_id]?.rating != null && (
+                  <div className="text-xs text-gray-700">
+                    <span className="text-amber-500">★</span>{' '}
+                    {ratings[p.place_id].rating!.toFixed(1)}
+                    {ratings[p.place_id].count != null && (
+                      <span className="ml-1 text-gray-500">
+                        （{ratings[p.place_id].count!.toLocaleString('ja-JP')}件）
+                      </span>
+                    )}
+                  </div>
+                )}
                 {p.address && (
                   <div className="text-xs text-gray-600">{shortAddress(p.address)}</div>
                 )}
@@ -600,12 +654,13 @@ function MapInner() {
             onCloseClick={() => setPoi(null)}
           >
             <div className="pt-0.5 text-sm">
-              {poi.rating !== null && (
+              {ratings[poi.id]?.rating != null && (
                 <div className="text-xs text-gray-700">
-                  <span className="text-amber-500">★</span> {poi.rating.toFixed(1)}
-                  {poi.ratingCount !== null && (
+                  <span className="text-amber-500">★</span>{' '}
+                  {ratings[poi.id].rating!.toFixed(1)}
+                  {ratings[poi.id].count != null && (
                     <span className="ml-1 text-gray-500">
-                      （{poi.ratingCount.toLocaleString('ja-JP')}件）
+                      （{ratings[poi.id].count!.toLocaleString('ja-JP')}件）
                     </span>
                   )}
                 </div>
