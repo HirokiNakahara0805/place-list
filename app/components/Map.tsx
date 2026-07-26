@@ -348,6 +348,8 @@ function MapInner() {
     setEditing(null);
     setNotice('');
     setSheet('closed');
+    setShops([]);
+    setSearched(false);
     setPoi({
       id: s.id,
       name: s.name,
@@ -577,6 +579,7 @@ function MapInner() {
               key={`iw-${p.id}`}
               position={{ lat: p.lat, lng: p.lng }}
               pixelOffset={[0, -14]}
+              shouldFocus={false}
               headerContent={<span className="text-sm font-bold">{p.name}</span>}
               onCloseClick={() => setOpenId(null)}
             >
@@ -650,6 +653,7 @@ function MapInner() {
           <InfoWindow
             position={{ lat: poi.lat, lng: poi.lng }}
             pixelOffset={[0, -14]}
+            shouldFocus={false}
             headerContent={<span className="text-sm font-bold">{poi.name}</span>}
             onCloseClick={() => setPoi(null)}
           >
@@ -887,6 +891,12 @@ function MapInner() {
                 />
                 <button
                   onClick={() => {
+                    // 別の吹き出しやフォームが残っていると表示が競合するので閉じる
+                    setPoi(null);
+                    setPending(null);
+                    setEditing(null);
+                    setShops([]);
+                    setSearched(false);
                     setPanTarget({ lat: p.lat, lng: p.lng });
                     setOpenId(p.id);
                     // 全開のときだけ中段に下げる。中段ならそのまま保つ
