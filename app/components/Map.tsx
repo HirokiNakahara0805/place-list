@@ -93,12 +93,6 @@ const sheetHeight: Record<SheetState, string> = {
   full: 'h-[80dvh]',
 };
 
-const sheetLabel: Record<SheetState, string> = {
-  closed: '開く',
-  half: 'もっと',
-  full: '閉じる',
-};
-
 function MapInner() {
   const [supabase] = useState(() => createClient());
 
@@ -144,8 +138,8 @@ function MapInner() {
     load();
   }, [supabase]);
 
-  const cycleSheet = () =>
-    setSheet((s) => (s === 'closed' ? 'half' : s === 'half' ? 'full' : 'closed'));
+  const openMore = () => setSheet((s) => (s === 'closed' ? 'half' : 'full'));
+  const closeMore = () => setSheet((s) => (s === 'full' ? 'half' : 'closed'));
 
   const locate = () => {
     if (!navigator.geolocation) {
@@ -433,17 +427,29 @@ function MapInner() {
       <div
         className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-8 md:left-4 md:h-auto md:max-h-[40dvh] md:w-72 md:rounded-lg md:bg-white/95 md:shadow-lg`}
       >
-        <button
-          onClick={cycleSheet}
-          className="flex h-14 shrink-0 items-center justify-between px-4 text-left md:h-auto md:cursor-default md:px-3 md:py-2"
-        >
-          <span className="text-sm font-bold">
+        <div className="flex h-14 shrink-0 items-center justify-between px-4 md:h-auto md:px-3 md:py-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-bold">
             行きたい店（未訪問 {notVisited} / 全 {places.length}）
           </span>
-          <span className="ml-2 shrink-0 text-xs text-gray-400 md:hidden">
-            {sheetLabel[sheet]}
-          </span>
-        </button>
+          <div className="ml-2 flex shrink-0 gap-1 md:hidden">
+            <button
+              onClick={closeMore}
+              disabled={sheet === 'closed'}
+              aria-label="下げる"
+              className="rounded border px-3 py-1 text-sm text-gray-600 disabled:opacity-30"
+            >
+              ↓
+            </button>
+            <button
+              onClick={openMore}
+              disabled={sheet === 'full'}
+              aria-label="上げる"
+              className="rounded border px-3 py-1 text-sm text-gray-600 disabled:opacity-30"
+            >
+              ↑
+            </button>
+          </div>
+        </div>
 
         <div
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-3"
