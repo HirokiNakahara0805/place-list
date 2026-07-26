@@ -27,8 +27,8 @@ const toJa = (e: AuthLikeError): string => {
   if (code === 'validation_failed' || /invalid.*email|email.*invalid/i.test(msg)) {
     return 'メールアドレスの形式が正しくないようです。';
   }
-  if (/signups not allowed/i.test(msg)) {
-    return 'このメールアドレスでは新規登録ができません。';
+  if (code === 'otp_disabled' || /signups not allowed|user not found/i.test(msg)) {
+    return 'このメールアドレスは登録されていません。';
   }
   if (/failed to fetch|network/i.test(msg)) {
     return '通信に失敗しました。電波状況を確認してお試しください。';
@@ -83,7 +83,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setError('');
     setNotice('');
 
-    const { error } = await supabase.auth.signInWithOtp({ email: addr });
+    const { error } = await supabase.auth.signInWithOtp({
+      email: addr,
+      // 登録済みのユーザーだけがログインできる（勝手なアカウント作成を防ぐ）
+      options: { shouldCreateUser: false },
+    });
     setBusy(false);
 
     if (error) {
@@ -136,7 +140,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
-          <h1 className="mb-1 text-lg font-bold">行きたい店リスト</h1>
+          <h1 className="mb-1 text-lg font-bold">行きたいお店リスト</h1>
 
           {step === 'email' ? (
             <>

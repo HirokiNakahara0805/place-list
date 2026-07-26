@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: '行きたい店リスト',
-    short_name: '行きたい店',
+    name: '行きたいお店リスト',
+    short_name: '行きたいお店',
     description: '気になったお店を地図にまとめておくアプリ',
     start_url: '/',
     display: 'standalone',

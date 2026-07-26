@@ -965,7 +965,7 @@ function MapInner() {
       >
         <div className="flex h-14 shrink-0 items-center justify-between px-4 md:h-auto md:px-3 md:py-2">
           <span className="min-w-0 flex-1 truncate text-sm font-bold">
-            行きたい店（未訪問 {visible.filter((p) => !p.visited).length} / {visible.length}件
+            行きたいお店（未訪問 {visible.filter((p) => !p.visited).length} / {visible.length}件
             {visible.length !== places.length ? ` / 全${places.length}` : ''}）
           </span>
           <div className="ml-2 flex shrink-0 gap-1 md:hidden">
@@ -992,8 +992,9 @@ function MapInner() {
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-3"
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
         >
-          {loaded && !loadError && places.length > 0 && (
+          {loaded && !loadError && (
             <div className="mb-2 flex flex-col gap-1 border-b pb-2 text-xs">
+              {places.length > 0 && (
               <div className="flex gap-1">
                 {(
                   [
@@ -1018,8 +1019,10 @@ function MapInner() {
                   </button>
                 ))}
               </div>
+              )}
 
               <div className="flex gap-1">
+                {places.length > 0 && (
                 <button
                   onClick={() => setOnlyUnvisited((v) => !v)}
                   className={
@@ -1030,6 +1033,7 @@ function MapInner() {
                 >
                   未訪問のみ
                 </button>
+                )}
                 <button
                   onClick={() => setFilterOpen((v) => !v)}
                   className={
@@ -1186,7 +1190,20 @@ function MapInner() {
           {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
           {loadError && <p className="text-xs text-red-600">{loadError}</p>}
           {loaded && !loadError && places.length === 0 && (
-            <p className="text-xs text-gray-500">スクショか検索で追加</p>
+            <div className="space-y-1 text-xs text-gray-500">
+              <p>
+                上の「スクショから追加」での文字の読み取りか検索でお店を登録できます。
+                地図上のお店をタップしても登録できます。
+              </p>
+              <p>
+                「絞り込み」→「タグを作成・削除」から、
+                ラーメン・デートなど自由なタグを作れます。
+                作ったタグはお店の登録・編集画面で選べます。
+              </p>
+              <p className="pt-1 text-center text-gray-400">
+                あなただけの素敵なお店リストになりますように。
+              </p>
+            </div>
           )}
           {loaded && !loadError && places.length > 0 && visible.length === 0 && (
             <p className="text-xs text-gray-500">条件に合う店がありません</p>

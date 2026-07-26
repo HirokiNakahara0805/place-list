@@ -12,11 +12,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "行きたい店リスト",
+  title: "行きたいお店リスト",
   description: "気になったお店を地図にまとめておくアプリ",
   appleWebApp: {
     capable: true,
-    title: "行きたい店",
+    title: "行きたいお店",
     statusBarStyle: "default",
   },
   icons: {
