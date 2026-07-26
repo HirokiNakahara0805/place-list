@@ -474,7 +474,7 @@ function MapInner() {
               headerContent={<span className="text-sm font-bold">{p.name}</span>}
               onCloseClick={() => setOpenId(null)}
             >
-              <div className="-mt-1 text-sm">
+              <div className="pt-0.5 text-sm">
                 {p.address && (
                   <div className="text-xs text-gray-600">{shortAddress(p.address)}</div>
                 )}
@@ -730,7 +730,8 @@ function MapInner() {
                   onClick={() => {
                     setPanTarget({ lat: p.lat, lng: p.lng });
                     setOpenId(p.id);
-                    setSheet('closed');
+                    // 全開のときだけ中段に下げる。中段ならそのまま保つ
+                    setSheet((cur) => (cur === 'full' ? 'half' : cur));
                   }}
                   className="min-w-0 flex-1 text-left"
                 >
