@@ -30,6 +30,8 @@ type Shop = {
   genre: string;
 };
 
+type SheetState = 'closed' | 'half' | 'full';
+
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 const COLUMNS = 'id, name, address, memo, lat, lng, visited';
 
@@ -84,6 +86,13 @@ const dotStyle = (visited: boolean): React.CSSProperties => ({
   boxShadow: '0 1px 4px rgba(0,0,0,.4)',
 });
 
+// シートの高さ（スマホのみ有効。md以上では md:h-auto が勝つ）
+const sheetHeight: Record<SheetState, string> = {
+  closed: 'h-12',
+  half: 'h-[45vh]',
+  full: 'h-[85vh]',
+};
+
 function MapInner() {
   const [supabase] = useState(() => createClient());
 
@@ -112,6 +121,8 @@ function MapInner() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
 
+  const [sheet, setSheet] = useState<SheetState>('closed');
+
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
     const load = async () => {
@@ -126,6 +137,9 @@ function MapInner() {
     };
     load();
   }, [supabase]);
+
+  const cycleSheet = () =>
+    setSheet((s) => (s === 'closed' ? 'half' : s === 'half' ? 'full' : 'closed'));
 
   const locate = () => {
     if (!navigator.geolocation) {
@@ -197,6 +211,7 @@ function MapInner() {
     setSearched(false);
     setKeyword('');
     setNotice('');
+    setSheet('closed');
   };
 
   const reset = () => {
@@ -266,16 +281,20 @@ function MapInner() {
     if (!c) return;
     setPending({ lat: c.lat, lng: c.lng, name: '', address: '' });
     setOpenId(null);
+    setSheet('closed');
   };
 
+  const notVisited = places.filter((p) => !p.visited).length;
+
   return (
-    <div className="relative h-screen w-full">
+    <div className="relative h-[100dvh] w-full overflow-hidden">
       <GoogleMap
         mapId="place-list-map"
         defaultCenter={TOKYO}
         defaultZoom={13}
         gestureHandling="greedy"
-        disableDefaultUI={false}
+        disableDefaultUI={true}
+        zoomControl={true}
         mapTypeControl={false}
         streetViewControl={false}
         fullscreenControl={false}
@@ -300,12 +319,13 @@ function MapInner() {
             <InfoWindow
               key={`iw-${p.id}`}
               position={{ lat: p.lat, lng: p.lng }}
+              pixelOffset={[0, -14]}
               onCloseClick={() => setOpenId(null)}
             >
               <div className="text-sm">
                 <strong>{p.name}</strong>
                 {p.address && <div className="text-xs text-gray-600">{p.address}</div>}
-                {p.memo && <div>{p.memo}</div>}
+                {p.memo && <div className="mt-1">{p.memo}</div>}
               </div>
             </InfoWindow>
           ))}
@@ -332,8 +352,8 @@ function MapInner() {
         )}
       </GoogleMap>
 
-      {/* 検索パネル */}
-      <div className="absolute left-4 top-4 z-10 w-72 rounded-lg bg-white/95 p-3 shadow-lg">
+      {/* ===== 検索パネル：スマホは上部いっぱい、md以上は左上に固定幅 ===== */}
+      <div className="absolute inset-x-2 top-2 z-10 rounded-lg bg-white/95 p-3 shadow-lg md:inset-x-auto md:left-4 md:top-4 md:w-72">
         <input
           ref={fileRef}
           type="file"
@@ -354,7 +374,7 @@ function MapInner() {
           </button>
           <button
             onClick={locate}
-            className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+            className="shrink-0 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
             title="現在地へ移動"
           >
             現在地
@@ -363,15 +383,15 @@ function MapInner() {
 
         <div className="flex gap-2">
           <input
-            className="flex-1 rounded border px-2 py-1 text-sm"
-            placeholder="店名や「渋谷 ラーメン」"
+            className="min-w-0 flex-1 rounded border px-2 py-1 text-sm"
+            placeholder="店名や場所「ラーメン 渋谷」"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && runSearch(keyword)}
           />
           <button
             onClick={() => runSearch(keyword)}
-            className="rounded bg-green-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-40"
+            className="shrink-0 rounded bg-green-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-40"
             disabled={searching || keyword.trim() === ''}
           >
             {searching ? '...' : '検索'}
@@ -382,12 +402,12 @@ function MapInner() {
 
         {searched && shops.length === 0 && (
           <p className="mt-2 text-xs text-gray-500">
-            見つかりませんでした。地図を直接クリックしても登録できます。
+            見つかりませんでした。地図を直接タップしても登録できます。
           </p>
         )}
 
         {shops.length > 0 && (
-          <ul className="mt-2 max-h-56 overflow-y-auto border-t pt-2">
+          <ul className="mt-2 max-h-[40vh] overflow-y-auto border-t pt-2 md:max-h-56">
             {shops.map((s) => (
               <li key={s.id}>
                 <button
@@ -404,50 +424,74 @@ function MapInner() {
         )}
       </div>
 
-      {/* 一覧 */}
-      <div className="absolute bottom-8 left-4 z-10 max-h-[34vh] w-72 overflow-y-auto rounded-lg bg-white/95 p-3 shadow-lg">
-        <p className="mb-2 text-sm font-bold">
-          行きたい店（残り {places.filter((p) => !p.visited).length} / {places.length}）
-        </p>
+      {/* ===== 一覧：スマホは下部シート、md以上は左下パネル ===== */}
+      <div
+        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-8 md:left-4 md:h-auto md:max-h-[34vh] md:w-72 md:rounded-lg md:shadow-lg`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <button
+          onClick={cycleSheet}
+          className="flex shrink-0 items-center justify-between px-4 py-3 text-left md:cursor-default md:px-3 md:py-2"
+        >
+          <span className="text-sm font-bold">
+            行きたい店（未訪問 {notVisited} / 全 {places.length}）
+          </span>
+          <span className="text-xs text-gray-400 md:hidden">
+            {sheet === 'closed' ? '▲ 開く' : sheet === 'half' ? '▲ もっと' : '▼ 閉じる'}
+          </span>
+        </button>
 
-        {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
-        {loadError && <p className="text-xs text-red-600">{loadError}</p>}
-        {loaded && !loadError && places.length === 0 && (
-          <p className="text-xs text-gray-500">スクショか検索で追加</p>
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 md:px-3">
+          {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
+          {loadError && <p className="text-xs text-red-600">{loadError}</p>}
+          {loaded && !loadError && places.length === 0 && (
+            <p className="text-xs text-gray-500">スクショか検索で追加</p>
+          )}
 
-        <ul className="space-y-1">
-          {places.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={p.visited} onChange={() => toggleVisited(p.id)} />
-              <button
-                onClick={() => {
-                  setPanTarget({ lat: p.lat, lng: p.lng });
-                  setOpenId(p.id);
-                }}
-                className={
-                  p.visited ? 'flex-1 text-left text-gray-400 line-through' : 'flex-1 text-left'
-                }
-              >
-                {p.name}
-              </button>
-              <button
-                onClick={() => remove(p.id)}
-                className="text-xs text-gray-400 hover:text-red-500"
-              >
-                削除
-              </button>
-            </li>
-          ))}
-        </ul>
+          <ul className="space-y-2 md:space-y-1">
+            {places.map((p) => (
+              <li key={p.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0"
+                  checked={p.visited}
+                  onChange={() => toggleVisited(p.id)}
+                />
+                <button
+                  onClick={() => {
+                    setPanTarget({ lat: p.lat, lng: p.lng });
+                    setOpenId(p.id);
+                    setSheet('closed');
+                  }}
+                  className={
+                    p.visited
+                      ? 'min-w-0 flex-1 truncate text-left text-gray-400 line-through'
+                      : 'min-w-0 flex-1 truncate text-left'
+                  }
+                >
+                  {p.name}
+                </button>
+                <button
+                  onClick={() => remove(p.id)}
+                  className="shrink-0 text-xs text-gray-400 hover:text-red-500"
+                >
+                  削除
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
-      {/* 登録フォーム */}
+      {/* ===== 登録フォーム：スマホは下部シート、md以上は右上パネル ===== */}
       {pending && (
-        <div className="absolute right-4 top-4 z-10 w-72 rounded-lg bg-white p-4 shadow-lg">
+        <div
+          className="absolute inset-x-0 bottom-0 z-20 rounded-t-2xl bg-white p-4 shadow-[0_-2px_12px_rgba(0,0,0,.2)] md:inset-x-auto md:bottom-auto md:right-4 md:top-4 md:w-72 md:rounded-lg md:shadow-lg"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+        >
           <p className="mb-2 text-sm font-bold">この場所を登録</p>
           <input
-            className="mb-1 w-full rounded border px-2 py-1 text-sm"
+            className="mb-1 w-full rounded border px-2 py-2 text-sm md:py-1"
             placeholder="店名（必須）"
             value={pending.name}
             onChange={(e) => setPending({ ...pending, name: e.target.value })}
@@ -455,7 +499,7 @@ function MapInner() {
           />
           {pending.address && <p className="mb-2 text-xs text-gray-500">{pending.address}</p>}
           <input
-            className="mb-3 w-full rounded border px-2 py-1 text-sm"
+            className="mb-3 w-full rounded border px-2 py-2 text-sm md:py-1"
             placeholder="メモ"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
@@ -463,12 +507,12 @@ function MapInner() {
           <div className="flex gap-2">
             <button
               onClick={save}
-              className="flex-1 rounded bg-sky-500 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+              className="flex-1 rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40 md:py-1.5"
               disabled={saving || pending.name.trim() === ''}
             >
               {saving ? '保存中...' : '追加'}
             </button>
-            <button onClick={reset} className="rounded border px-3 py-1.5 text-sm">
+            <button onClick={reset} className="rounded border px-3 py-2 text-sm md:py-1.5">
               キャンセル
             </button>
           </div>
@@ -483,7 +527,7 @@ export default function Map() {
 
   if (!apiKey) {
     return (
-      <div className="flex h-screen items-center justify-center text-sm text-gray-600">
+      <div className="flex h-[100dvh] items-center justify-center text-sm text-gray-600">
         NEXT_PUBLIC_GOOGLE_MAPS_KEY が設定されていません
       </div>
     );
