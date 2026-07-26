@@ -153,7 +153,7 @@ const sheetHeight: Record<SheetState, string> = {
   full: 'h-[80dvh]',
 };
 
-// 登録・編集フォームのタグ選択（選ぶだけ。作成は一覧の「タグを管理」から）
+// 登録・編集フォームのタグ選択（選ぶだけ。作成は一覧の「タグを作成・削除」から）
 function TagPicker({
   tags,
   selected,
@@ -166,7 +166,7 @@ function TagPicker({
   if (tags.length === 0) {
     return (
       <p className="mb-3 text-xs text-gray-400">
-        タグは一覧の「絞り込み」→「タグを管理」から作成できます
+        タグは一覧の「絞り込み」→「タグを作成・削除」から追加できます
       </p>
     );
   }
@@ -238,6 +238,7 @@ function MapInner() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [manageTags, setManageTags] = useState(false);
   const [newTagName, setNewTagName] = useState('');
+  const [confirmTagId, setConfirmTagId] = useState<string | null>(null);
 
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
@@ -682,7 +683,6 @@ function MapInner() {
     setSheet('closed');
   };
 
-  const notVisited = places.filter((p) => !p.visited).length;
 
   // 絞り込み → 並べ替え の順に適用する
   const visible = places
@@ -961,11 +961,12 @@ function MapInner() {
 
       {/* ===== 一覧：スマホは下部シート、md以上は左下パネル ===== */}
       <div
-        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-8 md:left-4 md:h-auto md:max-h-[40dvh] md:w-72 md:rounded-lg md:bg-white/95 md:shadow-lg`}
+        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-6 md:left-4 md:h-auto md:max-h-[62dvh] md:w-[26rem] md:rounded-lg md:bg-white/95 md:shadow-lg`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between px-4 md:h-auto md:px-3 md:py-2">
           <span className="min-w-0 flex-1 truncate text-sm font-bold">
-            行きたい店（未訪問 {notVisited} / 全 {places.length}）
+            行きたい店（未訪問 {visible.filter((p) => !p.visited).length} / {visible.length}件
+            {visible.length !== places.length ? ` / 全${places.length}` : ''}）
           </span>
           <div className="ml-2 flex shrink-0 gap-1 md:hidden">
             <button
@@ -992,50 +993,54 @@ function MapInner() {
           style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
         >
           {loaded && !loadError && places.length > 0 && (
-            <div className="mb-2 flex flex-wrap items-center gap-1 border-b pb-2 text-xs">
-              {(
-                [
-                  ['new', '新しい順'],
-                  ['near', '近い順'],
-                  ['name', '名前順'],
-                ] as [SortKey, string][]
-              ).map(([key, label]) => (
+            <div className="mb-2 flex flex-col gap-1 border-b pb-2 text-xs">
+              <div className="flex gap-1">
+                {(
+                  [
+                    ['new', '新しい順'],
+                    ['near', '近い順'],
+                    ['name', '名前順'],
+                  ] as [SortKey, string][]
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setSortKey(key);
+                      if (key === 'near' && !myPos) locate();
+                    }}
+                    className={
+                      sortKey === key
+                        ? 'flex-1 rounded bg-gray-800 px-2 py-1 text-white'
+                        : 'flex-1 rounded border px-2 py-1 text-gray-600'
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-1">
                 <button
-                  key={key}
-                  onClick={() => {
-                    setSortKey(key);
-                    if (key === 'near' && !myPos) locate();
-                  }}
+                  onClick={() => setOnlyUnvisited((v) => !v)}
                   className={
-                    sortKey === key
-                      ? 'rounded bg-gray-800 px-2 py-1 text-white'
-                      : 'rounded border px-2 py-1 text-gray-600'
+                    onlyUnvisited
+                      ? 'flex-1 rounded bg-gray-800 px-2 py-1 text-white'
+                      : 'flex-1 rounded border px-2 py-1 text-gray-600'
                   }
                 >
-                  {label}
+                  未訪問のみ
                 </button>
-              ))}
-              <button
-                onClick={() => setOnlyUnvisited((v) => !v)}
-                className={
-                  onlyUnvisited
-                    ? 'ml-auto rounded bg-gray-800 px-2 py-1 text-white'
-                    : 'ml-auto rounded border px-2 py-1 text-gray-600'
-                }
-              >
-                未訪問のみ
-              </button>
-
-              <button
-                onClick={() => setFilterOpen((v) => !v)}
-                className={
-                  filterCount > 0
-                    ? 'w-full rounded bg-gray-800 px-2 py-1 text-white'
-                    : 'w-full rounded border px-2 py-1 text-gray-600'
-                }
-              >
-                絞り込み{filterCount > 0 ? `（${filterCount}）` : ''} {filterOpen ? '▲' : '▼'}
-              </button>
+                <button
+                  onClick={() => setFilterOpen((v) => !v)}
+                  className={
+                    filterCount > 0
+                      ? 'flex-1 rounded bg-gray-800 px-2 py-1 text-white'
+                      : 'flex-1 rounded border px-2 py-1 text-gray-600'
+                  }
+                >
+                  絞り込み{filterCount > 0 ? `（${filterCount}）` : ''} {filterOpen ? '▲' : '▼'}
+                </button>
+              </div>
 
               {filterOpen && (
                 <div className="w-full rounded border bg-gray-50 p-2">
@@ -1072,7 +1077,7 @@ function MapInner() {
                       onClick={() => setManageTags((v) => !v)}
                       className="text-[11px] text-gray-500 underline"
                     >
-                      {manageTags ? '完了' : 'タグを管理'}
+                      {manageTags ? '完了' : 'タグを作成・削除'}
                     </button>
                   </div>
 
@@ -1095,12 +1100,8 @@ function MapInner() {
                     </div>
                   )}
 
-                  {tags.length === 0 ? (
-                    <p className="text-[11px] text-gray-400">
-                      「タグを管理」からタグを作成できます
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
+                  {tags.length > 0 && (
+                    <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto overscroll-contain md:max-h-32">
                       {tags.map((t) => (
                         <span key={t.id} className="inline-flex items-center">
                           <button
@@ -1121,7 +1122,7 @@ function MapInner() {
                           </button>
                           {manageTags && (
                             <button
-                              onClick={() => deleteTag(t.id)}
+                              onClick={() => setConfirmTagId(t.id)}
                               aria-label={`${t.name}を削除`}
                               className="ml-0.5 text-[11px] text-red-500"
                             >
@@ -1133,15 +1134,42 @@ function MapInner() {
                     </div>
                   )}
 
-                  {filterCount > 0 && (
+                  {confirmTagId && (
+                    <div className="mt-2 rounded border border-red-200 bg-red-50 p-2">
+                      <p className="mb-1 text-[11px] text-red-700">
+                        タグ「{tags.find((t) => t.id === confirmTagId)?.name}」を削除します。
+                        付けている店からも外れます。
+                      </p>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            deleteTag(confirmTagId);
+                            setConfirmTagId(null);
+                          }}
+                          className="rounded bg-red-600 px-2 py-1 text-[11px] text-white"
+                        >
+                          削除
+                        </button>
+                        <button
+                          onClick={() => setConfirmTagId(null)}
+                          className="rounded border bg-white px-2 py-1 text-[11px] text-gray-600"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(filterCount > 0 || onlyUnvisited) && (
                     <button
                       onClick={() => {
                         setSelectedPrefs([]);
                         setSelectedTagIds([]);
+                        setOnlyUnvisited(false);
                       }}
-                      className="mt-2 text-[11px] text-gray-600 underline"
+                      className="mt-2 font-medium text-red-600 underline"
                     >
-                      絞り込みを解除
+                      すべてクリア
                     </button>
                   )}
                 </div>
