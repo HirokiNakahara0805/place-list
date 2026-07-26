@@ -179,6 +179,15 @@ function MapInner() {
   const [editSaving, setEditSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
+  const [poi, setPoi] = useState<{
+    id: string;
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+    rating: number | null;
+    ratingCount: number | null;
+  } | null>(null);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
@@ -240,6 +249,7 @@ function MapInner() {
   const runSearch = async (q: string) => {
     if (q.trim() === '') return;
     setOpenId(null);
+    setPoi(null);
     setSearching(true);
     setSearched(false);
     try {
@@ -303,6 +313,7 @@ function MapInner() {
   const pickShop = (s: Shop) => {
     // 吹き出しが開いたままだと地図が元の位置に引き戻されるので先に閉じる
     setOpenId(null);
+    setPoi(null);
     setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address, placeId: s.id });
     setPanTarget({ lat: s.lat, lng: s.lng });
     setMemo('');
@@ -324,6 +335,7 @@ function MapInner() {
   const openEdit = (p: Place) => {
     setEditing({ ...p });
     setOpenId(null);
+    setPoi(null);
     setPending(null);
   };
 
@@ -413,11 +425,62 @@ function MapInner() {
     }
   };
 
-  const onMapClick = (e: MapMouseEvent) => {
-    const c = e.detail.latLng;
-    if (!c) return;
-    setPending({ lat: c.lat, lng: c.lng, name: '', address: '', placeId: null });
+  // 地図タップ：店舗アイコンのときだけ登録に進む。何もない場所は無視する
+  const onMapClick = async (e: MapMouseEvent) => {
+    const placeId = e.detail.placeId;
+    if (!placeId) {
+      setPoi(null);
+      setOpenId(null);
+      return;
+    }
+
+    // Google標準の吹き出しが出るのを抑える
+    if (e.stoppable && e.stop) e.stop();
+
     setOpenId(null);
+    setShops([]);
+    setSearched(false);
+    setNotice('店舗情報を取得中...');
+    setSheet('closed');
+
+    try {
+      const res = await fetch(`/api/place?id=${encodeURIComponent(placeId)}`);
+      const data = await res.json();
+
+      if (data.error || !data.place) {
+        setNotice(data.error ?? '店舗情報を取得できませんでした');
+        return;
+      }
+
+      setNotice('');
+      setPoi(data.place);
+    } catch {
+      setNotice('店舗情報の取得に失敗しました');
+    }
+  };
+
+  // 吹き出しの「この場所を登録」から登録フォームへ
+  const registerPoi = () => {
+    if (!poi) return;
+    setPending({
+      lat: poi.lat,
+      lng: poi.lng,
+      name: poi.name,
+      address: poi.address,
+      placeId: poi.id,
+    });
+    setPanTarget({ lat: poi.lat, lng: poi.lng });
+    setPoi(null);
+  };
+
+  // 見つからなかった店を、地図の中心に手動で登録する
+  const addManually = () => {
+    const c = mapObj?.getCenter();
+    if (!c) return;
+    setOpenId(null);
+    setShops([]);
+    setSearched(false);
+    setPending({ lat: c.lat(), lng: c.lng(), name: keyword.trim(), address: '', placeId: null });
     setSheet('closed');
   };
 
@@ -529,6 +592,41 @@ function MapInner() {
           </AdvancedMarker>
         ))}
 
+        {poi && (
+          <InfoWindow
+            position={{ lat: poi.lat, lng: poi.lng }}
+            pixelOffset={[0, -14]}
+            headerContent={<span className="text-sm font-bold">{poi.name}</span>}
+            onCloseClick={() => setPoi(null)}
+          >
+            <div className="pt-0.5 text-sm">
+              {poi.rating !== null && (
+                <div className="text-xs text-gray-700">
+                  <span className="text-amber-500">★</span> {poi.rating.toFixed(1)}
+                  {poi.ratingCount !== null && (
+                    <span className="ml-1 text-gray-500">
+                      （{poi.ratingCount.toLocaleString('ja-JP')}件）
+                    </span>
+                  )}
+                </div>
+              )}
+              {poi.address && (
+                <div className="text-xs text-gray-600">{shortAddress(poi.address)}</div>
+              )}
+              {registered.has(poi.id) ? (
+                <p className="mt-2 text-xs text-gray-500">この店はすでに登録済みです</p>
+              ) : (
+                <button
+                  onClick={registerPoi}
+                  className="mt-2 rounded bg-sky-500 px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  この場所を登録
+                </button>
+              )}
+            </div>
+          </InfoWindow>
+        )}
+
         {pending && (
           <AdvancedMarker position={{ lat: pending.lat, lng: pending.lng }} zIndex={10}>
             <div style={{ ...dotStyle(false), opacity: 0.5 }} />
@@ -599,9 +697,15 @@ function MapInner() {
         {notice && <p className="mt-2 text-xs text-gray-600">{notice}</p>}
 
         {searched && shops.length === 0 && (
-          <p className="mt-2 text-xs text-gray-500">
-            見つかりませんでした。地図を直接タップしても登録できます。
-          </p>
+          <div className="mt-2 text-xs text-gray-500">
+            <p>見つかりませんでした。</p>
+            <button
+              onClick={addManually}
+              className="mt-1 rounded border px-2 py-1 text-gray-700"
+            >
+              地図の中心に手動で登録
+            </button>
+          </div>
         )}
 
         {shops.length > 0 && (
