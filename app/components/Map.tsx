@@ -79,6 +79,16 @@ function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   return null;
 }
 
+// 郵便番号や番地は地図を見れば分かるので、町名までに短くする
+const shortAddress = (a: string) => {
+  const t = a
+    .replace(/^日本、?\s*/, '')
+    .replace(/〒?\s*\d{3}-?\d{4}\s*/, '')
+    .trim();
+  const m = t.match(/^[^0-9０-９]+/);
+  return (m ? m[0] : t).trim();
+};
+
 // http(s) で始まるものだけリンクとして扱う
 const isHttp = (u: string) => /^https?:\/\//i.test(u.trim());
 
@@ -208,6 +218,7 @@ function MapInner() {
 
   const runSearch = async (q: string) => {
     if (q.trim() === '') return;
+    setOpenId(null);
     setSearching(true);
     setSearched(false);
     try {
@@ -239,6 +250,7 @@ function MapInner() {
   };
 
   const handleFile = async (file: File) => {
+    setOpenId(null);
     setExtracting(true);
     setNotice('');
     setShops([]);
@@ -268,6 +280,8 @@ function MapInner() {
   };
 
   const pickShop = (s: Shop) => {
+    // 吹き出しが開いたままだと地図が元の位置に引き戻されるので先に閉じる
+    setOpenId(null);
     setPending({ lat: s.lat, lng: s.lng, name: s.name, address: s.address, placeId: s.id });
     setPanTarget({ lat: s.lat, lng: s.lng });
     setMemo('');
@@ -428,7 +442,9 @@ function MapInner() {
               onCloseClick={() => setOpenId(null)}
             >
               <div className="-mt-1 text-sm">
-                {p.address && <div className="text-xs text-gray-600">{p.address}</div>}
+                {p.address && (
+                  <div className="text-xs text-gray-600">{shortAddress(p.address)}</div>
+                )}
                 {p.memo && <div className="mt-1 whitespace-pre-wrap">{p.memo}</div>}
                 <div className="mt-2 flex flex-col items-start gap-1">
                   {isHttp(p.url) && (
@@ -720,7 +736,9 @@ function MapInner() {
             onChange={(e) => setPending({ ...pending, name: e.target.value })}
             autoFocus
           />
-          {pending.address && <p className="mb-2 text-xs text-gray-500">{pending.address}</p>}
+          {pending.address && (
+            <p className="mb-2 text-xs text-gray-500">{shortAddress(pending.address)}</p>
+          )}
           <input
             className="mb-2 w-full rounded border px-2 py-2 text-sm md:py-1"
             placeholder="メモ"
@@ -763,7 +781,9 @@ function MapInner() {
             onChange={(e) => setEditing({ ...editing, name: e.target.value })}
             autoFocus
           />
-          {editing.address && <p className="mb-2 text-xs text-gray-500">{editing.address}</p>}
+          {editing.address && (
+            <p className="mb-2 text-xs text-gray-500">{shortAddress(editing.address)}</p>
+          )}
           <textarea
             className="mb-2 w-full resize-none rounded border px-2 py-2 text-sm"
             rows={3}
