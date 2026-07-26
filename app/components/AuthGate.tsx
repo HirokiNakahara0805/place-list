@@ -4,6 +4,44 @@ import { useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 
+type AuthLikeError = { message?: string; code?: string; status?: number };
+
+// Supabaseの英語メッセージを日本語に置き換える
+const toJa = (e: AuthLikeError): string => {
+  const msg = e.message ?? '';
+  const code = e.code ?? '';
+
+  // 「あと N 秒待って」系は秒数を拾って伝える
+  const wait = msg.match(/after (\d+) seconds?/i);
+  if (wait) return `送信の間隔が短すぎます。あと${wait[1]}秒ほど待ってからお試しください。`;
+
+  if (code === 'over_email_send_rate_limit' || /email rate limit exceeded/i.test(msg)) {
+    return 'メールの送信回数が上限に達しました。しばらく時間をおいてからお試しください。';
+  }
+  if (code === 'over_request_rate_limit' || e.status === 429) {
+    return 'リクエストが多すぎます。少し時間をおいてからお試しください。';
+  }
+  if (code === 'otp_expired' || /expired|invalid/i.test(msg)) {
+    return 'コードが正しくないか、期限が切れています。再送してお試しください。';
+  }
+  if (code === 'validation_failed' || /invalid.*email|email.*invalid/i.test(msg)) {
+    return 'メールアドレスの形式が正しくないようです。';
+  }
+  if (/signups not allowed/i.test(msg)) {
+    return 'このメールアドレスでは新規登録ができません。';
+  }
+  if (/failed to fetch|network/i.test(msg)) {
+    return '通信に失敗しました。電波状況を確認してお試しください。';
+  }
+  return `送信できませんでした（${msg}）`;
+};
+
+// 「あと N 秒」の N を取り出す
+const waitSecondsOf = (e: AuthLikeError): number => {
+  const m = (e.message ?? '').match(/after (\d+) seconds?/i);
+  return m ? Number(m[1]) : 0;
+};
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<User | null>(null);
@@ -15,6 +53,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -29,6 +68,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [supabase]);
 
+  // 再送までの待ち時間を1秒ずつ減らす
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((v) => v - 1), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
+
   // コードを送る。emailRedirectTo を渡さないことでリンクではなくコードが送られる
   const sendCode = async () => {
     const addr = email.trim();
@@ -41,9 +87,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setBusy(false);
 
     if (error) {
-      setError(error.message);
+      setError(toJa(error));
+      setCooldown(waitSecondsOf(error));
       return;
     }
+    setCooldown(30); // 連打を防ぐため、成功後も少し間隔をあける
     setStep('code');
     setNotice('メールにコードを送りました');
   };
@@ -63,7 +111,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setBusy(false);
 
     if (error) {
-      setError('コードが正しくないか、期限が切れています');
+      setError(toJa(error));
       return;
     }
     // 成功すると onAuthStateChange が発火して画面が切り替わる
@@ -107,10 +155,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               />
               <button
                 onClick={sendCode}
-                disabled={busy || email.trim() === ''}
+                disabled={busy || email.trim() === '' || cooldown > 0}
                 className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
               >
-                {busy ? '送信中...' : 'ログインコードを送る'}
+                {busy
+                  ? '送信中...'
+                  : cooldown > 0
+                    ? `再送まで ${cooldown} 秒`
+                    : 'ログインコードを送る'}
               </button>
             </>
           ) : (
@@ -141,8 +193,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 <button onClick={backToEmail} className="text-gray-500 underline">
                   アドレスを変える
                 </button>
-                <button onClick={sendCode} disabled={busy} className="text-sky-600 underline">
-                  コードを再送する
+                <button
+                  onClick={sendCode}
+                  disabled={busy || cooldown > 0}
+                  className="text-sky-600 underline disabled:text-gray-400 disabled:no-underline"
+                >
+                  {cooldown > 0 ? `再送まで ${cooldown} 秒` : 'コードを再送する'}
                 </button>
               </div>
             </>
