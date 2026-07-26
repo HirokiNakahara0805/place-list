@@ -424,10 +424,10 @@ function MapInner() {
               key={`iw-${p.id}`}
               position={{ lat: p.lat, lng: p.lng }}
               pixelOffset={[0, -14]}
+              headerContent={<span className="text-sm font-bold">{p.name}</span>}
               onCloseClick={() => setOpenId(null)}
             >
-              <div className="text-sm">
-                <strong>{p.name}</strong>
+              <div className="-mt-1 text-sm">
                 {p.address && <div className="text-xs text-gray-600">{p.address}</div>}
                 {p.memo && <div className="mt-1 whitespace-pre-wrap">{p.memo}</div>}
                 <div className="mt-2 flex flex-col items-start gap-1">
@@ -438,7 +438,7 @@ function MapInner() {
                       rel="noopener noreferrer"
                       className="text-xs text-blue-600 underline"
                     >
-                      リンクを開く
+                      保存したリンクを開く
                     </a>
                   )}
                   <a
