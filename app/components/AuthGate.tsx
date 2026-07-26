@@ -40,16 +40,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     else setSent(true);
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSent(false);
-    setEmail('');
-  };
-
   if (checking) {
     return (
-      <div className="flex h-screen items-center justify-center text-sm text-gray-500">
+      <div className="flex h-[100dvh] items-center justify-center text-sm text-gray-500">
         読み込み中...
       </div>
     );
@@ -57,7 +50,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50 px-4">
+      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 px-4">
         <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
           <h1 className="mb-1 text-lg font-bold">行きたい店リスト</h1>
           <p className="mb-4 text-xs text-gray-500">
@@ -104,15 +97,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return (
-    <>
-      {children}
-      <button
-        onClick={signOut}
-        className="fixed bottom-2 right-2 z-20 rounded bg-white/90 px-2 py-1 text-[10px] text-gray-500 shadow hover:text-gray-800"
-      >
-        ログアウト（{user.email}）
-      </button>
-    </>
-  );
+  // ログアウトは一覧シートの中に置いているため、ここではボタンを出さない
+  return <>{children}</>;
 }

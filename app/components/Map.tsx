@@ -86,11 +86,17 @@ const dotStyle = (visited: boolean): React.CSSProperties => ({
   boxShadow: '0 1px 4px rgba(0,0,0,.4)',
 });
 
-// シートの高さ（スマホのみ有効。md以上では md:h-auto が勝つ）
+// シートの高さ。iOSでは vh が実表示領域より大きくなるため dvh を使う
 const sheetHeight: Record<SheetState, string> = {
-  closed: 'h-12',
-  half: 'h-[45vh]',
-  full: 'h-[85vh]',
+  closed: 'h-14',
+  half: 'h-[45dvh]',
+  full: 'h-[80dvh]',
+};
+
+const sheetLabel: Record<SheetState, string> = {
+  closed: '開く',
+  half: 'もっと',
+  full: '閉じる',
 };
 
 function MapInner() {
@@ -287,14 +293,14 @@ function MapInner() {
   const notVisited = places.filter((p) => !p.visited).length;
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden">
+    <div className="fixed inset-0 overflow-hidden">
       <GoogleMap
         mapId="place-list-map"
         defaultCenter={TOKYO}
         defaultZoom={13}
         gestureHandling="greedy"
         disableDefaultUI={true}
-        zoomControl={true}
+        zoomControl={false}
         mapTypeControl={false}
         streetViewControl={false}
         fullscreenControl={false}
@@ -375,7 +381,6 @@ function MapInner() {
           <button
             onClick={locate}
             className="shrink-0 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
-            title="現在地へ移動"
           >
             現在地
           </button>
@@ -407,7 +412,7 @@ function MapInner() {
         )}
 
         {shops.length > 0 && (
-          <ul className="mt-2 max-h-[40vh] overflow-y-auto border-t pt-2 md:max-h-56">
+          <ul className="mt-2 max-h-[40dvh] overflow-y-auto overscroll-contain border-t pt-2 md:max-h-56">
             {shops.map((s) => (
               <li key={s.id}>
                 <button
@@ -426,22 +431,24 @@ function MapInner() {
 
       {/* ===== 一覧：スマホは下部シート、md以上は左下パネル ===== */}
       <div
-        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-8 md:left-4 md:h-auto md:max-h-[34vh] md:w-72 md:rounded-lg md:shadow-lg`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col rounded-t-2xl bg-white shadow-[0_-2px_12px_rgba(0,0,0,.15)] transition-[height] duration-300 ${sheetHeight[sheet]} md:inset-x-auto md:bottom-8 md:left-4 md:h-auto md:max-h-[40dvh] md:w-72 md:rounded-lg md:bg-white/95 md:shadow-lg`}
       >
         <button
           onClick={cycleSheet}
-          className="flex shrink-0 items-center justify-between px-4 py-3 text-left md:cursor-default md:px-3 md:py-2"
+          className="flex h-14 shrink-0 items-center justify-between px-4 text-left md:h-auto md:cursor-default md:px-3 md:py-2"
         >
           <span className="text-sm font-bold">
             行きたい店（未訪問 {notVisited} / 全 {places.length}）
           </span>
-          <span className="text-xs text-gray-400 md:hidden">
-            {sheet === 'closed' ? '▲ 開く' : sheet === 'half' ? '▲ もっと' : '▼ 閉じる'}
+          <span className="ml-2 shrink-0 text-xs text-gray-400 md:hidden">
+            {sheetLabel[sheet]}
           </span>
         </button>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3 md:px-3">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-3"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+        >
           {!loaded && <p className="text-xs text-gray-500">読み込み中...</p>}
           {loadError && <p className="text-xs text-red-600">{loadError}</p>}
           {loaded && !loadError && places.length === 0 && (
@@ -480,6 +487,21 @@ function MapInner() {
               </li>
             ))}
           </ul>
+
+          {sheet !== 'closed' && (
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="mt-6 text-[11px] text-gray-400 underline"
+            >
+              ログアウト
+            </button>
+          )}
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="mt-4 hidden text-[11px] text-gray-400 underline md:block"
+          >
+            ログアウト
+          </button>
         </div>
       </div>
 
