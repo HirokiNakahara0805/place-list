@@ -14,6 +14,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "行きたい店リスト",
   description: "気になったお店を地図にまとめておくアプリ",
+  appleWebApp: {
+    capable: true,
+    title: "行きたい店",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-icon.png",
+  },
   other: {
     google: "notranslate",
   },
@@ -24,6 +33,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({

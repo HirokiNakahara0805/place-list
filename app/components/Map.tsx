@@ -140,6 +140,7 @@ function MapInner() {
 
   const [sheet, setSheet] = useState<SheetState>('closed');
   const [mapObj, setMapObj] = useState<google.maps.Map | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
   useEffect(() => {
@@ -177,6 +178,27 @@ function MapInner() {
     );
   };
 
+  // 検索結果が全部見えるように地図を合わせる
+  const fitToShops = (list: Shop[]) => {
+    if (!mapObj || list.length === 0) return;
+    if (list.length === 1) {
+      mapObj.panTo({ lat: list[0].lat, lng: list[0].lng });
+      mapObj.setZoom(16);
+      return;
+    }
+    const lats = list.map((x) => x.lat);
+    const lngs = list.map((x) => x.lng);
+    mapObj.fitBounds(
+      {
+        north: Math.max(...lats),
+        south: Math.min(...lats),
+        east: Math.max(...lngs),
+        west: Math.min(...lngs),
+      },
+      80
+    );
+  };
+
   const runSearch = async (q: string) => {
     if (q.trim() === '') return;
     setSearching(true);
@@ -197,7 +219,11 @@ function MapInner() {
 
       const res = await fetch(`/api/search?${params.toString()}`);
       const data = await res.json();
-      setShops(data.shops ?? []);
+      if (data.error) setNotice(`検索エラー: ${data.error}`);
+
+      const found: Shop[] = data.shops ?? [];
+      setShops(found);
+      fitToShops(found);
     } catch {
       setShops([]);
     }
@@ -377,8 +403,28 @@ function MapInner() {
             </InfoWindow>
           ))}
 
+        {shops.map((s) => (
+          <AdvancedMarker
+            key={`shop-${s.id}`}
+            position={{ lat: s.lat, lng: s.lng }}
+            onClick={() => pickShop(s)}
+            zIndex={5}
+          >
+            <div
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: registered.has(s.id) ? '#d1d5db' : '#f59e0b',
+                border: '3px solid #fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,.4)',
+              }}
+            />
+          </AdvancedMarker>
+        ))}
+
         {pending && (
-          <AdvancedMarker position={{ lat: pending.lat, lng: pending.lng }}>
+          <AdvancedMarker position={{ lat: pending.lat, lng: pending.lng }} zIndex={10}>
             <div style={{ ...dotStyle(false), opacity: 0.5 }} />
           </AdvancedMarker>
         )}
@@ -549,12 +595,32 @@ function MapInner() {
                     <span className="block truncate text-xs text-gray-500">{p.memo}</span>
                   )}
                 </button>
-                <button
-                  onClick={() => remove(p.id)}
-                  className="mt-0.5 shrink-0 text-xs text-gray-400 hover:text-red-500"
-                >
-                  削除
-                </button>
+                {confirmId === p.id ? (
+                  <span className="mt-0.5 flex shrink-0 items-center gap-1">
+                    <button
+                      onClick={() => {
+                        remove(p.id);
+                        setConfirmId(null);
+                      }}
+                      className="rounded bg-red-600 px-2 py-0.5 text-xs text-white"
+                    >
+                      削除
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      className="rounded border px-2 py-0.5 text-xs text-gray-600"
+                    >
+                      取消
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(p.id)}
+                    className="mt-0.5 shrink-0 text-xs text-gray-400 hover:text-red-500"
+                  >
+                    削除
+                  </button>
+                )}
               </li>
             ))}
           </ul>
