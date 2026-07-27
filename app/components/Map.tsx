@@ -109,16 +109,6 @@ const shortAddress = (a: string) => {
   return (m ? m[0] : t).trim();
 };
 
-// 住所の先頭から都道府県を取り出す（自動分類用）
-const prefOf = (addr: string) => {
-  const t = addr
-    .replace(/^日本、?\s*/, '')
-    .replace(/〒?\s*\d{3}-?\d{4}\s*/, '')
-    .trim();
-  const m = t.match(/^(北海道|東京都|京都府|大阪府|.{2,3}?県)/);
-  return m ? m[1] : '';
-};
-
 // http(s) で始まるものだけリンクとして扱う
 const isHttp = (u: string) => /^https?:\/\//i.test(u.trim());
 
@@ -260,7 +250,6 @@ function MapInner() {
   const [editTagIds, setEditTagIds] = useState<string[]>([]);
 
   const [filterOpen, setFilterOpen] = useState(false);
-  const [selectedPrefs, setSelectedPrefs] = useState<string[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [manageTags, setManageTags] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -268,6 +257,10 @@ function MapInner() {
 
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
+  const [originOpen, setOriginOpen] = useState(false);
+  const [originQuery, setOriginQuery] = useState('');
+  const [originBusy, setOriginBusy] = useState(false);
+  const [origin, setOrigin] = useState<{ label: string; lat: number; lng: number } | null>(null);
   // 同じ店の評価を何度も取りに行かないためのキャッシュ（セッション内）
   const [ratings, setRatings] = useState<
     Record<string, { rating: number | null; count: number | null }>
@@ -443,6 +436,40 @@ function MapInner() {
       },
       80
     );
+  };
+
+  // 一覧の並べ替え基準にする地点を、地名から決める
+  const applyOrigin = async () => {
+    const q = originQuery.trim();
+    if (q === '' || originBusy) return;
+    setOriginBusy(true);
+
+    try {
+      const res = await fetch(`/api/search?keyword=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      const first = (data.shops ?? [])[0];
+
+      if (!first) {
+        setNotice(`「${q}」が見つかりませんでした`);
+        setOriginBusy(false);
+        return;
+      }
+
+      setOrigin({ label: q, lat: first.lat, lng: first.lng });
+      setSortKey('near');
+      setPanTarget({ lat: first.lat, lng: first.lng });
+      setOriginOpen(false);
+      setNotice('');
+    } catch {
+      setNotice('場所を取得できませんでした');
+    }
+    setOriginBusy(false);
+  };
+
+  const clearOrigin = () => {
+    setOrigin(null);
+    setOriginQuery('');
+    setOriginOpen(false);
   };
 
   const runSearch = async (q: string) => {
@@ -739,9 +766,6 @@ function MapInner() {
   // 絞り込み → 並べ替え の順に適用する
   const visible = places
     .filter((p) => (onlyUnvisited ? !p.visited : true))
-    .filter((p) =>
-      selectedPrefs.length === 0 ? true : selectedPrefs.includes(prefOf(p.address))
-    )
     .filter((p) => {
       if (selectedTagIds.length === 0) return true;
       const own = placeTags[p.id] ?? [];
@@ -750,14 +774,15 @@ function MapInner() {
     .slice()
     .sort((a, b) => {
       if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
-      if (sortKey === 'near' && myPos) {
-        return distanceM(myPos, a) - distanceM(myPos, b);
+      const base = origin ?? myPos;
+      if (sortKey === 'near' && base) {
+        return distanceM(base, a) - distanceM(base, b);
       }
       return 0; // 'new' は読み込み順（新しい順）のまま
     });
   const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
-  const prefs = Array.from(new Set(places.map((p) => prefOf(p.address)).filter(Boolean))).sort();
-  const filterCount = selectedPrefs.length + selectedTagIds.length;
+  const filterCount = selectedTagIds.length;
+  const distanceBase = origin ?? myPos;
 
   return (
     <div className="fixed inset-0 overflow-hidden">
@@ -1059,7 +1084,12 @@ function MapInner() {
                     key={key}
                     onClick={() => {
                       setSortKey(key);
-                      if (key === 'near' && !myPos) locate();
+                      if (key === 'near') {
+                        setOriginOpen(true);
+                        if (!myPos && !origin) locate();
+                      } else {
+                        setOriginOpen(false);
+                      }
                     }}
                     className={
                       sortKey === key
@@ -1067,10 +1097,49 @@ function MapInner() {
                         : 'flex-1 rounded border px-2 py-1 text-gray-600'
                     }
                   >
-                    {label}
+                    {key === 'near' && origin ? `近い順：${origin.label}` : label}
                   </button>
                 ))}
               </div>
+              )}
+
+              {sortKey === 'near' && originOpen && (
+                <div className="rounded border bg-gray-50 p-2">
+                  <p className="mb-1 text-[11px] text-gray-500">距離の基準</p>
+                  <div className="mb-1 flex gap-1">
+                    <button
+                      onClick={clearOrigin}
+                      className={
+                        origin === null
+                          ? 'rounded bg-gray-800 px-2 py-1 text-white'
+                          : 'rounded border bg-white px-2 py-1 text-gray-600'
+                      }
+                    >
+                      現在地
+                    </button>
+                    {origin && (
+                      <span className="inline-flex items-center rounded bg-gray-800 px-2 py-1 text-white">
+                        {origin.label}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <input
+                      className="min-w-0 flex-1 rounded border bg-white px-2 py-1 text-xs"
+                      placeholder="場所を指定（例: 新宿駅）"
+                      value={originQuery}
+                      onChange={(e) => setOriginQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && applyOrigin()}
+                    />
+                    <button
+                      onClick={applyOrigin}
+                      disabled={originBusy || originQuery.trim() === ''}
+                      className="shrink-0 rounded border bg-white px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                    >
+                      {originBusy ? '...' : '設定'}
+                    </button>
+                  </div>
+                </div>
               )}
 
               <div className="flex gap-1">
@@ -1104,33 +1173,6 @@ function MapInner() {
 
               {filterOpen && (
                 <div className="w-full rounded border bg-gray-50 p-2">
-                  {prefs.length > 0 && (
-                    <>
-                      <p className="mb-1 text-[11px] text-gray-500">都道府県（住所から自動）</p>
-                      <div className="mb-2 flex flex-wrap gap-1">
-                        {prefs.map((pref) => (
-                          <button
-                            key={pref}
-                            onClick={() =>
-                              setSelectedPrefs((prev) =>
-                                prev.includes(pref)
-                                  ? prev.filter((x) => x !== pref)
-                                  : [...prev, pref]
-                              )
-                            }
-                            className={
-                              selectedPrefs.includes(pref)
-                                ? 'rounded-full bg-gray-800 px-2.5 py-1 text-white'
-                                : 'rounded-full border bg-white px-2.5 py-1 text-gray-600'
-                            }
-                          >
-                            {pref}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
                   <div className="mb-1 flex items-center justify-between">
                     <p className="text-[11px] text-gray-500">タグ（すべて含むもの）</p>
                     <button
@@ -1226,7 +1268,6 @@ function MapInner() {
                   {(filterCount > 0 || onlyUnvisited) && (
                     <button
                       onClick={() => {
-                        setSelectedPrefs([]);
                         setSelectedTagIds([]);
                         setOnlyUnvisited(false);
                       }}
@@ -1240,7 +1281,7 @@ function MapInner() {
             </div>
           )}
 
-          {sortKey === 'near' && !myPos && (
+          {sortKey === 'near' && !myPos && !origin && (
             <p className="mb-2 text-xs text-gray-500">
               現在地を取得しています。許可されていない場合は「現在地」を押してください。
             </p>
@@ -1299,9 +1340,9 @@ function MapInner() {
                     {p.name}
                   </span>
                   <span className="block truncate text-xs text-gray-500">
-                    {myPos && (
+                    {distanceBase && (
                       <span className="mr-2 text-gray-400">
-                        {formatDistance(distanceM(myPos, p))}
+                        {formatDistance(distanceM(distanceBase, p))}
                       </span>
                     )}
                     {(placeTags[p.id] ?? []).map((tid) => {
