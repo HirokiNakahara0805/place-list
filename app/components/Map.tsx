@@ -269,9 +269,12 @@ function MapInner() {
       if (placeRes.error) setLoadError(placeRes.error.message);
       else setPlaces((placeRes.data ?? []) as Place[]);
 
-      if (!tagRes.error) setTags((tagRes.data ?? []) as Tag[]);
+      if (tagRes.error) setNotice(`タグの読み込みに失敗: ${tagRes.error.message}`);
+      else setTags((tagRes.data ?? []) as Tag[]);
 
-      if (!linkRes.error) {
+      if (linkRes.error) {
+        setNotice(`タグの紐付けの読み込みに失敗: ${linkRes.error.message}`);
+      } else {
         const map: Record<string, string[]> = {};
         for (const row of (linkRes.data ?? []) as { place_id: string; tag_id: string }[]) {
           (map[row.place_id] ||= []).push(row.tag_id);
@@ -283,6 +286,16 @@ function MapInner() {
     };
     load();
   }, [supabase]);
+
+  // タグだけをDBから取り直す
+  const reloadTags = async () => {
+    const { data, error } = await supabase.from('tags').select('id, name').order('name');
+    if (error) {
+      setNotice(`タグを取得できませんでした: ${error.message}`);
+      return;
+    }
+    setTags((data ?? []) as Tag[]);
+  };
 
   // タグを新規作成する
   const createTag = async () => {
@@ -297,8 +310,19 @@ function MapInner() {
       .insert({ name })
       .select('id, name')
       .single();
-    if (error || !data) {
-      setNotice(`タグを作成できませんでした: ${error?.message ?? ''}`);
+    if (error) {
+      // 23505 = 同名タグがすでにDBにある（画面が古い可能性が高い）
+      if (error.code === '23505') {
+        setNotice(`「${name}」はすでにあります。一覧を取り直しました。`);
+        setNewTagName('');
+        await reloadTags();
+        return;
+      }
+      setNotice(`タグを作成できませんでした: ${error.message}`);
+      return;
+    }
+    if (!data) {
+      setNotice('タグを作成できませんでした');
       return;
     }
     setTags((prev) => [...prev, data as Tag].sort((a, b) => a.name.localeCompare(b.name, 'ja')));
@@ -1035,7 +1059,11 @@ function MapInner() {
                 </button>
                 )}
                 <button
-                  onClick={() => setFilterOpen((v) => !v)}
+                  onClick={() => {
+                    const next = !filterOpen;
+                    setFilterOpen(next);
+                    if (next) reloadTags();
+                  }}
                   className={
                     filterCount > 0
                       ? 'flex-1 rounded bg-gray-800 px-2 py-1 text-white'
