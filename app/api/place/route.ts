@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
       headers: {
         'X-Goog-Api-Key': key,
         // rating / userRatingCount は Enterprise SKU を発動させる（店舗タップ時のみ使用）
-        'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,rating,userRatingCount',
+        'X-Goog-FieldMask':
+          'id,displayName,formattedAddress,location,rating,userRatingCount,photos',
       },
     });
 
@@ -39,6 +40,8 @@ export async function GET(req: NextRequest) {
         lng: data.location.longitude,
         rating: typeof data.rating === 'number' ? data.rating : null,
         ratingCount: typeof data.userRatingCount === 'number' ? data.userRatingCount : null,
+        // 先頭の1枚だけ使う。画像本体は /api/photo 経由で取得する
+        photoName: data.photos?.[0]?.name ?? null,
       },
     });
   } catch {

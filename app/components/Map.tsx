@@ -263,7 +263,7 @@ function MapInner() {
   const [origin, setOrigin] = useState<{ label: string; lat: number; lng: number } | null>(null);
   // 同じ店の評価を何度も取りに行かないためのキャッシュ（セッション内）
   const [ratings, setRatings] = useState<
-    Record<string, { rating: number | null; count: number | null }>
+    Record<string, { rating: number | null; count: number | null; photo?: string | null }>
   >({});
 
   const [poi, setPoi] = useState<{
@@ -274,6 +274,7 @@ function MapInner() {
     lng: number;
     rating: number | null;
     ratingCount: number | null;
+    photoName?: string | null;
   } | null>(null);
 
   // 起動時にDBから読み込む（RLSにより自分の行だけが返る）
@@ -382,9 +383,18 @@ function MapInner() {
         const res = await fetch(`/api/place?id=${encodeURIComponent(target)}`);
         const data = await res.json();
         if (cancelled || !data.place) return;
+
+        let photo: string | null = null;
+        if (data.place.photoName) {
+          const pr = await fetch(`/api/photo?name=${encodeURIComponent(data.place.photoName)}`);
+          const pd = await pr.json();
+          photo = pd.url ?? null;
+        }
+        if (cancelled) return;
+
         setRatings((prev) => ({
           ...prev,
-          [target]: { rating: data.place.rating, count: data.place.ratingCount },
+          [target]: { rating: data.place.rating, count: data.place.ratingCount, photo },
         }));
       } catch {
         // 取得できなくても表示しないだけなので黙って無視する
@@ -723,9 +733,19 @@ function MapInner() {
 
       setNotice('');
       setPoi(data.place);
+      let photo: string | null = null;
+      if (data.place.photoName) {
+        const pr = await fetch(`/api/photo?name=${encodeURIComponent(data.place.photoName)}`);
+        const pd = await pr.json();
+        photo = pd.url ?? null;
+      }
       setRatings((prev) => ({
         ...prev,
-        [data.place.id]: { rating: data.place.rating, count: data.place.ratingCount },
+        [data.place.id]: {
+          rating: data.place.rating,
+          count: data.place.ratingCount,
+          photo,
+        },
       }));
     } catch {
       setNotice('店舗情報の取得に失敗しました');
@@ -807,8 +827,33 @@ function MapInner() {
             key={p.id}
             position={{ lat: p.lat, lng: p.lng }}
             onClick={() => setOpenId(p.id)}
+            zIndex={openId === p.id ? 8 : 1}
           >
-            <div style={dotStyle(p.visited)} />
+            {/* 選択していなくても店名が分かるようにラベルを添える */}
+            <div className="flex flex-col items-center">
+              <div style={dotStyle(p.visited)} />
+              {/* Googleの店名（白地に黒）と区別できるよう、色を反転させる */}
+              <span
+                style={{
+                  marginTop: 3,
+                  maxWidth: '8.5rem',
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  background: p.visited ? '#6b7280' : '#dc2626',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  lineHeight: 1.25,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  border: '1.5px solid #fff',
+                  boxShadow: '0 1px 4px rgba(0,0,0,.35)',
+                }}
+              >
+                {p.name}
+              </span>
+            </div>
           </AdvancedMarker>
         ))}
 
@@ -824,6 +869,14 @@ function MapInner() {
               onCloseClick={() => setOpenId(null)}
             >
               <div className="pt-0.5 text-sm">
+                {p.place_id && ratings[p.place_id]?.photo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ratings[p.place_id].photo!}
+                    alt=""
+                    className="mb-1 h-24 w-full rounded object-cover"
+                  />
+                )}
                 {p.place_id && ratings[p.place_id]?.rating != null && (
                   <div className="text-xs text-gray-700">
                     <span className="text-amber-500">★</span>{' '}
@@ -898,6 +951,14 @@ function MapInner() {
             onCloseClick={() => setPoi(null)}
           >
             <div className="pt-0.5 text-sm">
+              {ratings[poi.id]?.photo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={ratings[poi.id].photo!}
+                  alt=""
+                  className="mb-1 h-24 w-full rounded object-cover"
+                />
+              )}
               {ratings[poi.id]?.rating != null && (
                 <div className="text-xs text-gray-700">
                   <span className="text-amber-500">★</span>{' '}
