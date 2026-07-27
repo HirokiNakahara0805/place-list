@@ -1460,6 +1460,18 @@ function MapInner() {
             </p>
           )}
 
+          {loaded && !loadError && (
+            <p className="mt-3 text-center text-[10px] text-gray-300">
+              <a href="/terms" className="underline hover:text-gray-500">
+                利用規約
+              </a>
+              <span className="mx-1">·</span>
+              <a href="/privacy" className="underline hover:text-gray-500">
+                プライバシーポリシー
+              </a>
+            </p>
+          )}
+
           {sheet !== 'closed' && (
             <button
               onClick={() => supabase.auth.signOut()}

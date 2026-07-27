@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Place Photos は Essentials（月10,000回）。余裕をみて上限を設ける。
+const MONTHLY_LIMIT = Number(process.env.PLACE_PHOTO_MONTHLY_LIMIT ?? 8000);
+
+let counter = { month: '', count: 0 };
+const currentMonth = () => new Date().toISOString().slice(0, 7);
+
+function tryConsume(): boolean {
+  const m = currentMonth();
+  if (counter.month !== m) counter = { month: m, count: 0 };
+  if (counter.count >= MONTHLY_LIMIT) return false;
+  counter.count += 1;
+  return true;
+}
+
 export async function GET(req: NextRequest) {
   const name = req.nextUrl.searchParams.get('name')?.trim();
-  if (!name) return NextResponse.json({ error: 'nameがありません' }, { status: 400 });
+  if (!name) return NextResponse.json({ error: 'nameがありません' });
 
   const key = process.env.GOOGLE_PLACES_API_KEY;
-  if (!key) return NextResponse.json({ error: 'APIキーが未設定です' }, { status: 500 });
+  if (!key) return NextResponse.json({ error: 'APIキーが未設定です' });
+
+  if (!tryConsume()) return NextResponse.json({ error: '写真の取得上限に達しました' });
 
   try {
     const url = new URL(`https://places.googleapis.com/v1/${name}/media`);
@@ -17,11 +33,10 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
 
     if (!res.ok || !data?.photoUri) {
-      return NextResponse.json({ error: '写真を取得できませんでした' }, { status: 200 });
+      return NextResponse.json({ error: '写真を取得できませんでした' });
     }
-    // 画像そのものではなく、表示用のURLを返す（転送量を抑えるため）
     return NextResponse.json({ url: data.photoUri });
   } catch {
-    return NextResponse.json({ error: '写真の取得に失敗しました' }, { status: 200 });
+    return NextResponse.json({ error: '写真の取得に失敗しました' });
   }
 }

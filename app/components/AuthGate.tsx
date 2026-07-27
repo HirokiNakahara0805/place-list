@@ -83,11 +83,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setError('');
     setNotice('');
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email: addr,
-      // 登録済みのユーザーだけがログインできる（勝手なアカウント作成を防ぐ）
-      options: { shouldCreateUser: false },
-    });
+    const { error } = await supabase.auth.signInWithOtp({ email: addr });
     setBusy(false);
 
     if (error) {
@@ -210,6 +206,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
           {notice && <p className="mt-3 text-xs text-gray-600">{notice}</p>}
           {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+          <p className="mt-5 border-t pt-3 text-[11px] leading-relaxed text-gray-400">
+            ログインすることで
+            <a href="/terms" className="mx-0.5 underline hover:text-gray-600">
+              利用規約
+            </a>
+            と
+            <a href="/privacy" className="mx-0.5 underline hover:text-gray-600">
+              プライバシーポリシー
+            </a>
+            に同意したものとみなします。
+          </p>
         </div>
       </div>
     );

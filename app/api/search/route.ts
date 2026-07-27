@@ -21,6 +21,20 @@ type SearchBody = {
   };
 };
 
+// Text Search は Pro（月5,000回）。余裕をみて上限を設ける。
+const MONTHLY_LIMIT = Number(process.env.TEXT_SEARCH_MONTHLY_LIMIT ?? 4000);
+
+let counter = { month: '', count: 0 };
+const currentMonth = () => new Date().toISOString().slice(0, 7);
+
+function tryConsume(): boolean {
+  const m = currentMonth();
+  if (counter.month !== m) counter = { month: m, count: 0 };
+  if (counter.count >= MONTHLY_LIMIT) return false;
+  counter.count += 1;
+  return true;
+}
+
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const keyword = sp.get('keyword')?.trim();
@@ -29,6 +43,13 @@ export async function GET(req: NextRequest) {
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) {
     return NextResponse.json({ shops: [], error: 'GOOGLE_PLACES_API_KEY が未設定です' });
+  }
+
+  if (!tryConsume()) {
+    return NextResponse.json({
+      shops: [],
+      error: '本日の検索上限に達しました。時間をおいてお試しください。',
+    });
   }
 
   const body: SearchBody = {
