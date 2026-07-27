@@ -189,6 +189,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 {busy ? '確認中...' : 'ログイン'}
               </button>
 
+              <p className="mt-3 rounded bg-gray-50 p-2 text-[11px] leading-relaxed text-gray-500">
+                メールが届くまで少し時間がかかることがあります。
+                数分待っても届かない場合は、迷惑メールフォルダをご確認ください。
+              </p>
+
               <div className="mt-3 flex justify-between text-xs">
                 <button onClick={backToEmail} className="text-gray-500 underline">
                   アドレスを変える
