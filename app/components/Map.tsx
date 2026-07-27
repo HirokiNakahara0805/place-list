@@ -158,37 +158,63 @@ function TagPicker({
   tags,
   selected,
   onToggle,
+  onCreate,
 }: {
   tags: Tag[];
   selected: string[];
   onToggle: (id: string) => void;
+  onCreate: (name: string) => Promise<void>;
 }) {
-  if (tags.length === 0) {
-    return (
-      <p className="mb-3 text-xs text-gray-400">
-        タグは一覧の「絞り込み」→「タグを作成・削除」から追加できます
-      </p>
-    );
-  }
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    const n = name.trim();
+    if (n === '' || busy) return;
+    setBusy(true);
+    await onCreate(n);
+    setBusy(false);
+    setName('');
+  };
 
   return (
     <div className="mb-3">
       <p className="mb-1 text-[11px] text-gray-500">タグ</p>
-      <ul className="max-h-32 overflow-y-auto overscroll-contain rounded border">
-        {tags.map((t) => (
-          <li key={t.id} className="border-b last:border-b-0">
-            <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4 shrink-0"
-                checked={selected.includes(t.id)}
-                onChange={() => onToggle(t.id)}
-              />
-              <span className="min-w-0 truncate">{t.name}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
+
+      {tags.length > 0 && (
+        <ul className="mb-1 max-h-32 overflow-y-auto overscroll-contain rounded border">
+          {tags.map((t) => (
+            <li key={t.id} className="border-b last:border-b-0">
+              <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0"
+                  checked={selected.includes(t.id)}
+                  onChange={() => onToggle(t.id)}
+                />
+                <span className="min-w-0 truncate">{t.name}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-1">
+        <input
+          className="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm"
+          placeholder="新しいタグ（例: ラーメン）"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && create()}
+        />
+        <button
+          onClick={create}
+          disabled={busy || name.trim() === ''}
+          className="shrink-0 rounded border px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
+        >
+          {busy ? '...' : '作成'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -297,36 +323,38 @@ function MapInner() {
     setTags((data ?? []) as Tag[]);
   };
 
-  // タグを新規作成する
-  const createTag = async () => {
-    const name = newTagName.trim();
-    if (name === '') return;
-    if (tags.some((t) => t.name === name)) {
-      setNewTagName('');
-      return;
-    }
+  // タグを新規作成する。作成できたらそのIDを返す
+  const createTag = async (rawName: string): Promise<string | null> => {
+    const name = rawName.trim();
+    if (name === '') return null;
+
+    const exist = tags.find((t) => t.name === name);
+    if (exist) return exist.id;
+
     const { data, error } = await supabase
       .from('tags')
       .insert({ name })
       .select('id, name')
       .single();
+
     if (error) {
       // 23505 = 同名タグがすでにDBにある（画面が古い可能性が高い）
       if (error.code === '23505') {
         setNotice(`「${name}」はすでにあります。一覧を取り直しました。`);
-        setNewTagName('');
         await reloadTags();
-        return;
+        return null;
       }
       setNotice(`タグを作成できませんでした: ${error.message}`);
-      return;
+      return null;
     }
     if (!data) {
       setNotice('タグを作成できませんでした');
-      return;
+      return null;
     }
-    setTags((prev) => [...prev, data as Tag].sort((a, b) => a.name.localeCompare(b.name, 'ja')));
-    setNewTagName('');
+
+    const created = data as Tag;
+    setTags((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, 'ja')));
+    return created.id;
   };
 
   // タグそのものを削除する（全店から外れる）
@@ -1120,10 +1148,13 @@ function MapInner() {
                         placeholder="新しいタグ（例: ラーメン）"
                         value={newTagName}
                         onChange={(e) => setNewTagName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && createTag()}
+                        onKeyDown={(e) =>
+                          e.key === 'Enter' &&
+                          createTag(newTagName).then(() => setNewTagName(''))
+                        }
                       />
                       <button
-                        onClick={createTag}
+                        onClick={() => createTag(newTagName).then(() => setNewTagName(''))}
                         disabled={newTagName.trim() === ''}
                         className="shrink-0 rounded border bg-white px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
                       >
@@ -1228,9 +1259,6 @@ function MapInner() {
                 ラーメン・デートなど自由なタグを作れます。
                 作ったタグはお店の登録・編集画面で選べます。
               </p>
-              <p className="pt-1 text-center text-gray-400">
-                あなただけの素敵なお店リストになりますように。
-              </p>
             </div>
           )}
           {loaded && !loadError && places.length > 0 && visible.length === 0 && (
@@ -1324,6 +1352,12 @@ function MapInner() {
             ))}
           </ul>
 
+          {loaded && !loadError && (
+            <p className="mt-4 text-center text-[11px] text-gray-400">
+              あなただけの素敵なお店リストになりますように。
+            </p>
+          )}
+
           {sheet !== 'closed' && (
             <button
               onClick={() => supabase.auth.signOut()}
@@ -1379,6 +1413,10 @@ function MapInner() {
                 prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
               )
             }
+            onCreate={async (name) => {
+              const id = await createTag(name);
+              if (id) setPendingTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+            }}
           />
           <div className="flex gap-2">
             <button
@@ -1434,6 +1472,10 @@ function MapInner() {
                 prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
               )
             }
+            onCreate={async (name) => {
+              const id = await createTag(name);
+              if (id) setEditTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+            }}
           />
           <div className="flex gap-2">
             <button
