@@ -134,9 +134,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-50 px-4">
+      <div className="flex h-[100dvh] flex-col bg-gray-50">
+        {/* 上部バー：どのサイトを開いているか一目で分かるように */}
+        <header className="flex items-center gap-2 border-b bg-white px-4 py-3 shadow-sm">
+          <span
+            aria-hidden
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-sm text-white"
+          >
+            📍
+          </span>
+          <span className="text-base font-bold text-gray-800">行きたいお店リスト</span>
+          <span className="ml-auto text-[11px] text-gray-400">ikitai-omise.com</span>
+        </header>
+
+        <div className="flex flex-1 items-center justify-center px-4">
         <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
-          <h1 className="mb-1 text-lg font-bold">行きたいお店リスト</h1>
+          <h1 className="mb-1 text-lg font-bold">ログイン</h1>
 
           {step === 'email' ? (
             <>
@@ -223,6 +236,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </a>
             に同意したものとみなします。
           </p>
+        </div>
         </div>
       </div>
     );

@@ -149,11 +149,13 @@ function TagPicker({
   selected,
   onToggle,
   onCreate,
+  counts,
 }: {
   tags: Tag[];
   selected: string[];
   onToggle: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
+  counts?: Record<string, number>;
 }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -182,7 +184,8 @@ function TagPicker({
                   checked={selected.includes(t.id)}
                   onChange={() => onToggle(t.id)}
                 />
-                <span className="min-w-0 truncate">{t.name}</span>
+                <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                <span className="shrink-0 text-xs text-gray-400">{counts?.[t.id] ?? 0}</span>
               </label>
             </li>
           ))}
@@ -802,6 +805,29 @@ function MapInner() {
     });
   const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
   const filterCount = selectedTagIds.length;
+
+  // 近い位置のラベルが重ならないよう、上下にずらす量を決める
+  const labelOffsets: Record<string, number> = {};
+  {
+    const placed: { lat: number; lng: number; step: number }[] = [];
+    for (const p of places) {
+      // 近接判定（おおよそ数百m以内を「重なる」とみなす）
+      const near = placed.filter(
+        (q) => Math.abs(q.lat - p.lat) < 0.0016 && Math.abs(q.lng - p.lng) < 0.0032
+      );
+      const used = new Set(near.map((q) => q.step));
+      let step = 0;
+      while (used.has(step)) step += 1;
+      labelOffsets[p.id] = step;
+      placed.push({ lat: p.lat, lng: p.lng, step });
+    }
+  }
+
+  // タグごとの登録件数
+  const tagCounts: Record<string, number> = {};
+  for (const ids of Object.values(placeTags)) {
+    for (const id of ids) tagCounts[id] = (tagCounts[id] ?? 0) + 1;
+  }
   const distanceBase = origin ?? myPos;
 
   return (
@@ -827,7 +853,7 @@ function MapInner() {
             key={p.id}
             position={{ lat: p.lat, lng: p.lng }}
             onClick={() => setOpenId(p.id)}
-            zIndex={openId === p.id ? 8 : 1}
+            zIndex={openId === p.id ? 8 : 1 + (labelOffsets[p.id] ?? 0)}
           >
             {/* 選択していなくても店名が分かるようにラベルを添える */}
             <div className="flex flex-col items-center">
@@ -835,7 +861,7 @@ function MapInner() {
               {/* Googleの店名（白地に黒）と区別できるよう、色を反転させる */}
               <span
                 style={{
-                  marginTop: 3,
+                  marginTop: 3 + (labelOffsets[p.id] ?? 0) * 17,
                   maxWidth: '8.5rem',
                   padding: '2px 6px',
                   borderRadius: 6,
@@ -1285,6 +1311,7 @@ function MapInner() {
                             }
                           >
                             {t.name}
+                            <span className="ml-1 opacity-60">{tagCounts[t.id] ?? 0}</span>
                           </button>
                           {manageTags && (
                             <button
@@ -1522,6 +1549,7 @@ function MapInner() {
           <TagPicker
             tags={tags}
             selected={pendingTagIds}
+            counts={tagCounts}
             onToggle={(id) =>
               setPendingTagIds((prev) =>
                 prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -1581,6 +1609,7 @@ function MapInner() {
           <TagPicker
             tags={tags}
             selected={editTagIds}
+            counts={tagCounts}
             onToggle={(id) =>
               setEditTagIds((prev) =>
                 prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
