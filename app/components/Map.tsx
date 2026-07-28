@@ -806,23 +806,6 @@ function MapInner() {
   const registered = new Set(places.map((p) => p.place_id).filter(Boolean) as string[]);
   const filterCount = selectedTagIds.length;
 
-  // 近い位置のラベルが重ならないよう、上下にずらす量を決める
-  const labelOffsets: Record<string, number> = {};
-  {
-    const placed: { lat: number; lng: number; step: number }[] = [];
-    for (const p of places) {
-      // 近接判定（おおよそ数百m以内を「重なる」とみなす）
-      const near = placed.filter(
-        (q) => Math.abs(q.lat - p.lat) < 0.0016 && Math.abs(q.lng - p.lng) < 0.0032
-      );
-      const used = new Set(near.map((q) => q.step));
-      let step = 0;
-      while (used.has(step)) step += 1;
-      labelOffsets[p.id] = step;
-      placed.push({ lat: p.lat, lng: p.lng, step });
-    }
-  }
-
   // タグごとの登録件数
   const tagCounts: Record<string, number> = {};
   for (const ids of Object.values(placeTags)) {
@@ -853,7 +836,7 @@ function MapInner() {
             key={p.id}
             position={{ lat: p.lat, lng: p.lng }}
             onClick={() => setOpenId(p.id)}
-            zIndex={openId === p.id ? 8 : 1 + (labelOffsets[p.id] ?? 0)}
+            zIndex={openId === p.id ? 8 : 1}
           >
             {/* 選択していなくても店名が分かるようにラベルを添える */}
             <div className="flex flex-col items-center">
@@ -861,7 +844,7 @@ function MapInner() {
               {/* Googleの店名（白地に黒）と区別できるよう、色を反転させる */}
               <span
                 style={{
-                  marginTop: 3 + (labelOffsets[p.id] ?? 0) * 17,
+                  marginTop: 3,
                   maxWidth: '8.5rem',
                   padding: '2px 6px',
                   borderRadius: 6,
