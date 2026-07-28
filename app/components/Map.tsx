@@ -838,13 +838,16 @@ function MapInner() {
             onClick={() => setOpenId(p.id)}
             zIndex={openId === p.id ? 8 : 1}
           >
-            {/* 選択していなくても店名が分かるようにラベルを添える */}
-            <div className="flex flex-col items-center">
+            {/* 丸ポチだけを座標に合わせ、ラベルは真下に浮かせる */}
+            <div style={{ position: 'relative', width: 18, height: 18 }}>
               <div style={dotStyle(p.visited)} />
               {/* Googleの店名（白地に黒）と区別できるよう、色を反転させる */}
               <span
                 style={{
-                  marginTop: 3,
+                  position: 'absolute',
+                  top: 22,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
                   maxWidth: '8.5rem',
                   padding: '2px 6px',
                   borderRadius: 6,
@@ -858,6 +861,7 @@ function MapInner() {
                   textOverflow: 'ellipsis',
                   border: '1.5px solid #fff',
                   boxShadow: '0 1px 4px rgba(0,0,0,.35)',
+                  pointerEvents: 'none',
                 }}
               >
                 {p.name}
