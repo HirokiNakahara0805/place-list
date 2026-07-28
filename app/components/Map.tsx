@@ -69,6 +69,22 @@ const fileToCompressedBase64 = (file: File): Promise<{ base64: string; mimeType:
     reader.readAsDataURL(file);
   });
 
+// 現在のズームを親に伝える（引きすぎたときにラベルを隠すため）
+function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    const update = () => {
+      const z = map.getZoom();
+      if (typeof z === 'number') onZoom(z);
+    };
+    update();
+    const listener = map.addListener('zoom_changed', update);
+    return () => listener.remove();
+  }, [map, onZoom]);
+  return null;
+}
+
 // 地図を指定座標へ寄せる
 function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
   const map = useMap();
@@ -243,6 +259,7 @@ function MapInner() {
 
   const [sheet, setSheet] = useState<SheetState>('closed');
   const [mapObj, setMapObj] = useState<google.maps.Map | null>(null);
+  const [zoom, setZoom] = useState(13);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [editing, setEditing] = useState<Place | null>(null);
@@ -829,6 +846,7 @@ function MapInner() {
         style={{ width: '100%', height: '100%' }}
       >
         <CaptureMap onMap={setMapObj} />
+        <ZoomWatcher onZoom={setZoom} />
         <PanTo target={panTarget} />
 
         {places.map((p) => (
@@ -842,6 +860,8 @@ function MapInner() {
             <div style={{ position: 'relative', width: 18, height: 18 }}>
               <div style={dotStyle(p.visited)} />
               {/* Googleの店名（白地に黒）と区別できるよう、色を反転させる */}
+              {/* 引きすぎるとラベルが重なって読めないので隠す */}
+              {zoom >= 13 && (
               <span
                 style={{
                   position: 'absolute',
@@ -866,6 +886,7 @@ function MapInner() {
               >
                 {p.name}
               </span>
+              )}
             </div>
           </AdvancedMarker>
         ))}
