@@ -11,7 +11,6 @@ const toJa = (e: AuthLikeError): string => {
   const msg = e.message ?? '';
   const code = e.code ?? '';
 
-  // 「あと N 秒待って」系は秒数を拾って伝える
   const wait = msg.match(/after (\d+) seconds?/i);
   if (wait) return `送信の間隔が短すぎます。あと${wait[1]}秒ほど待ってからお試しください。`;
 
@@ -36,7 +35,6 @@ const toJa = (e: AuthLikeError): string => {
   return `送信できませんでした（${msg}）`;
 };
 
-// 「あと N 秒」の N を取り出す
 const waitSecondsOf = (e: AuthLikeError): number => {
   const m = (e.message ?? '').match(/after (\d+) seconds?/i);
   return m ? Number(m[1]) : 0;
@@ -68,14 +66,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [supabase]);
 
-  // 再送までの待ち時間を1秒ずつ減らす
   useEffect(() => {
     if (cooldown <= 0) return;
     const id = setTimeout(() => setCooldown((v) => v - 1), 1000);
     return () => clearTimeout(id);
   }, [cooldown]);
 
-  // コードを送る。emailRedirectTo を渡さないことでリンクではなくコードが送られる
   const sendCode = async () => {
     const addr = email.trim();
     if (addr === '') return;
@@ -91,13 +87,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       setCooldown(waitSecondsOf(error));
       return;
     }
-    setCooldown(30); // 連打を防ぐため、成功後も少し間隔をあける
     setStep('code');
     setNotice('メールにコードを送りました');
+    setCooldown(30);
   };
 
   const verify = async () => {
-    // 桁数は決め打ちしない（6桁とは限らないため）
     const token = code.trim();
     if (token === '') return;
     setBusy(true);
@@ -114,7 +109,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       setError(toJa(error));
       return;
     }
-    // 成功すると onAuthStateChange が発火して画面が切り替わる
   };
 
   const backToEmail = () => {
@@ -135,8 +129,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (!user) {
     return (
       <div className="flex h-[100dvh] flex-col bg-gray-50">
-        {/* 上部バー：どのサイトを開いているか一目で分かるように */}
-        <header className="flex items-center gap-2 border-b bg-white px-4 py-3 shadow-sm">
+        <header className="flex shrink-0 items-center gap-2 border-b bg-white px-4 py-3 shadow-sm">
           <span
             aria-hidden
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-sm text-white"
@@ -147,96 +140,135 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <span className="ml-auto text-[11px] text-gray-400">ikitai-omise.com</span>
         </header>
 
-        <div className="flex flex-1 items-center justify-center px-4">
-        <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow">
-          <h1 className="mb-1 text-lg font-bold">ログイン</h1>
-
-          {step === 'email' ? (
-            <>
-              <p className="mb-4 text-xs text-gray-500">
-                メールアドレスにログイン用のコードを送ります。パスワードは不要です。
+        <div className="flex-1 overflow-y-auto px-4 py-6">
+          <div className="mx-auto w-full max-w-sm">
+            {/* 何ができるアプリかを先に見せる */}
+            <div className="mb-5 text-center">
+              <h1 className="mb-2 text-lg font-bold leading-snug text-gray-900">
+                インスタで見たお店、
+                <br />
+                忘れる前に地図へ。
+              </h1>
+              <p className="text-xs leading-relaxed text-gray-600">
+                スクショを送るだけで、AIが店名を読み取って保存します。
               </p>
-              <input
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                className="mb-3 w-full rounded border px-3 py-2 text-sm"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && sendCode()}
-              />
-              <button
-                onClick={sendCode}
-                disabled={busy || email.trim() === '' || cooldown > 0}
-                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy
-                  ? '送信中...'
-                  : cooldown > 0
-                    ? `再送まで ${cooldown} 秒`
-                    : 'ログインコードを送る'}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="mb-4 text-xs text-gray-500">
-                {email} に届いたコードを入力してください。
+            </div>
+
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/preview.jpg"
+              alt="保存したお店が地図に並んでいる画面"
+              className="mb-5 w-full rounded-lg border shadow-sm"
+            />
+
+            <ul className="mb-6 space-y-2 text-xs text-gray-700">
+              <li className="flex gap-2">
+                <span aria-hidden>📷</span>
+                <span>スクショを送るだけ。店名も住所も自動で入ります</span>
+              </li>
+              <li className="flex gap-2">
+                <span aria-hidden>📍</span>
+                <span>「近い順」で、今いる場所の近くのお店が出てきます</span>
+              </li>
+              <li className="flex gap-2">
+                <span aria-hidden>🏷</span>
+                <span>ラーメン・デートなど、自由なタグで分類できます</span>
+              </li>
+            </ul>
+
+            <div className="rounded-lg bg-white p-5 shadow">
+              {step === 'email' ? (
+                <>
+                  <p className="mb-3 text-xs text-gray-500">
+                    無料で使えます。メールアドレスにログイン用のコードを送ります。
+                    パスワードは不要です。
+                  </p>
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    className="mb-3 w-full rounded border px-3 py-2 text-sm"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && sendCode()}
+                  />
+                  <button
+                    onClick={sendCode}
+                    disabled={busy || email.trim() === '' || cooldown > 0}
+                    className="w-full rounded bg-sky-500 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    {busy
+                      ? '送信中...'
+                      : cooldown > 0
+                        ? `再送まで ${cooldown} 秒`
+                        : '無料ではじめる'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-gray-500">
+                    {email} に届いたコードを入力してください。
+                  </p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="mb-3 w-full rounded border px-3 py-2 text-center text-lg tracking-widest"
+                    placeholder="123456"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && verify()}
+                    autoFocus
+                  />
+                  <button
+                    onClick={verify}
+                    disabled={busy || code.trim() === ''}
+                    className="w-full rounded bg-sky-500 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+                  >
+                    {busy ? '確認中...' : 'ログイン'}
+                  </button>
+
+                  <p className="mt-3 rounded bg-gray-50 p-2 text-[11px] leading-relaxed text-gray-500">
+                    メールが届くまで少し時間がかかることがあります。
+                    数分待っても届かない場合は、迷惑メールフォルダをご確認ください。
+                  </p>
+
+                  <div className="mt-3 flex justify-between text-xs">
+                    <button onClick={backToEmail} className="text-gray-500 underline">
+                      アドレスを変える
+                    </button>
+                    <button
+                      onClick={sendCode}
+                      disabled={busy || cooldown > 0}
+                      className="text-sky-600 underline disabled:text-gray-400 disabled:no-underline"
+                    >
+                      {cooldown > 0 ? `再送まで ${cooldown} 秒` : 'コードを再送する'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {notice && <p className="mt-3 text-xs text-gray-600">{notice}</p>}
+              {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+              <p className="mt-5 border-t pt-3 text-[11px] leading-relaxed text-gray-400">
+                ログインすることで
+                <a href="/terms" className="mx-0.5 underline hover:text-gray-600">
+                  利用規約
+                </a>
+                と
+                <a href="/privacy" className="mx-0.5 underline hover:text-gray-600">
+                  プライバシーポリシー
+                </a>
+                に同意したものとみなします。
               </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                className="mb-3 w-full rounded border px-3 py-2 text-center text-lg tracking-widest"
-                placeholder="123456"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && verify()}
-                autoFocus
-              />
-              <button
-                onClick={verify}
-                disabled={busy || code.trim() === ''}
-                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? '確認中...' : 'ログイン'}
-              </button>
+            </div>
 
-              <p className="mt-3 rounded bg-gray-50 p-2 text-[11px] leading-relaxed text-gray-500">
-                メールが届くまで少し時間がかかることがあります。
-                数分待っても届かない場合は、迷惑メールフォルダをご確認ください。
-              </p>
-
-              <div className="mt-3 flex justify-between text-xs">
-                <button onClick={backToEmail} className="text-gray-500 underline">
-                  アドレスを変える
-                </button>
-                <button
-                  onClick={sendCode}
-                  disabled={busy || cooldown > 0}
-                  className="text-sky-600 underline disabled:text-gray-400 disabled:no-underline"
-                >
-                  {cooldown > 0 ? `再送まで ${cooldown} 秒` : 'コードを再送する'}
-                </button>
-              </div>
-            </>
-          )}
-
-          {notice && <p className="mt-3 text-xs text-gray-600">{notice}</p>}
-          {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-
-          <p className="mt-5 border-t pt-3 text-[11px] leading-relaxed text-gray-400">
-            ログインすることで
-            <a href="/terms" className="mx-0.5 underline hover:text-gray-600">
-              利用規約
-            </a>
-            と
-            <a href="/privacy" className="mx-0.5 underline hover:text-gray-600">
-              プライバシーポリシー
-            </a>
-            に同意したものとみなします。
-          </p>
-        </div>
+            <p className="mt-6 text-center text-[11px] text-gray-400">
+              あなただけの素敵なお店リストになりますように。
+            </p>
+          </div>
         </div>
       </div>
     );
