@@ -21,6 +21,8 @@ type Place = {
   memo: string;
   url: string;
   visited: boolean;
+  review_summary: string | null;
+  review_summary_at: string | null;
 };
 
 type Shop = {
@@ -35,9 +37,17 @@ type Shop = {
 type SheetState = 'closed' | 'half' | 'full';
 type SortKey = 'new' | 'near' | 'name';
 type Tag = { id: string; name: string };
+type ReviewSummary = {
+  good: string[];
+  bad: string[];
+  note: string;
+  rating: number | null;
+  count: number | null;
+};
 
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
-const COLUMNS = 'id, place_id, name, address, memo, url, lat, lng, visited';
+const COLUMNS =
+  'id, place_id, name, address, memo, url, lat, lng, visited, review_summary, review_summary_at';
 
 // 画像を縮小してbase64にする（送信量を抑えるため）
 const fileToCompressedBase64 = (file: File): Promise<{ base64: string; mimeType: string }> =>
@@ -159,6 +169,60 @@ const sheetHeight: Record<SheetState, string> = {
   full: 'h-[80dvh]',
 };
 
+// 口コミ要約の中身（登録前・登録後の両方で使う）
+function ReviewBody({ data }: { data: ReviewSummary }) {
+  return (
+    <>
+      {data.rating !== null && (
+        <p className="mb-2 text-xs text-gray-600">
+          <span className="text-amber-500">★</span> {data.rating.toFixed(1)}
+          {data.count !== null && (
+            <span className="ml-1 text-gray-400">
+              （{data.count.toLocaleString('ja-JP')}件）
+            </span>
+          )}
+        </p>
+      )}
+
+      {data.good.length > 0 && (
+        <div className="mb-2">
+          <p className="mb-1 text-xs font-bold text-emerald-700">良い点</p>
+          <ul className="space-y-1">
+            {data.good.map((t, i) => (
+              <li key={`g-${i}`} className="flex gap-1.5 text-xs text-gray-700">
+                <span className="text-emerald-600">・</span>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mb-2">
+        <p className="mb-1 text-xs font-bold text-rose-700">気になる点</p>
+        {data.bad.length > 0 ? (
+          <ul className="space-y-1">
+            {data.bad.map((t, i) => (
+              <li key={`b-${i}`} className="flex gap-1.5 text-xs text-gray-700">
+                <span className="text-rose-600">・</span>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-gray-500">目立った指摘は見つかりませんでした</p>
+        )}
+      </div>
+
+      {data.note && (
+        <p className="rounded bg-gray-50 p-2 text-xs leading-relaxed text-gray-600">
+          {data.note}
+        </p>
+      )}
+    </>
+  );
+}
+
 // 登録・編集フォームのタグ選択（選ぶだけ。作成は一覧の「タグを作成・削除」から）
 function TagPicker({
   tags,
@@ -274,6 +338,16 @@ function MapInner() {
   const [manageTags, setManageTags] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [confirmTagId, setConfirmTagId] = useState<string | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<Place | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewSummary | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewAt, setReviewAt] = useState<string | null>(null);
+
+  // 登録前（未保存の店）の要約。保存しないのでその場限り
+  const [previewReview, setPreviewReview] = useState<ReviewSummary | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
 
   const [sortKey, setSortKey] = useState<SortKey>('new');
   const [onlyUnvisited, setOnlyUnvisited] = useState(false);
@@ -570,6 +644,7 @@ function MapInner() {
   const pickShop = (s: Shop) => {
     setOpenId(null);
     setPending(null);
+    clearPreviewReview();
     setEditing(null);
     setNotice('');
     setSheet('closed');
@@ -592,6 +667,102 @@ function MapInner() {
     setMemo('');
     setUrl('');
     setPendingTagIds([]);
+    clearPreviewReview();
+  };
+
+  // 登録前に口コミを確認する（保存はしない）
+  const fetchPreviewReview = async (placeId: string) => {
+    setPreviewLoading(true);
+    setPreviewError('');
+    setPreviewReview(null);
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placeId }),
+      });
+      const data = await res.json();
+      if (data.error || !data.summary) {
+        setPreviewError(data.error ?? '口コミを取得できませんでした');
+      } else {
+        setPreviewReview(data.summary as ReviewSummary);
+      }
+    } catch {
+      setPreviewError('口コミの取得に失敗しました');
+    }
+    setPreviewLoading(false);
+  };
+
+  const clearPreviewReview = () => {
+    setPreviewReview(null);
+    setPreviewError('');
+    setPreviewLoading(false);
+  };
+
+  // 保存済みの要約を開く。無ければ取得する
+  const openReview = async (p: Place, force = false) => {
+    setOpenId(null);
+    setPoi(null);
+    setPending(null);
+    setEditing(null);
+    setReviewTarget(p);
+    setReviewError('');
+
+    if (!force && p.review_summary) {
+      try {
+        setReviewData(JSON.parse(p.review_summary) as ReviewSummary);
+        setReviewAt(p.review_summary_at);
+        return;
+      } catch {
+        // 壊れていたら取り直す
+      }
+    }
+
+    setReviewData(null);
+    setReviewAt(null);
+
+    if (!p.place_id) {
+      setReviewError('この店舗は口コミを取得できません（地図から手動で登録したお店）');
+      return;
+    }
+
+    setReviewLoading(true);
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placeId: p.place_id }),
+      });
+      const data = await res.json();
+
+      if (data.error || !data.summary) {
+        setReviewError(data.error ?? '口コミを取得できませんでした');
+        setReviewLoading(false);
+        return;
+      }
+
+      const sum = data.summary as ReviewSummary;
+      setReviewData(sum);
+
+      const now = new Date().toISOString();
+      setReviewAt(now);
+
+      // 生成した要約だけを保存する（口コミ本文は保存しない）
+      const json = JSON.stringify(sum);
+      await supabase
+        .from('places')
+        .update({ review_summary: json, review_summary_at: now })
+        .eq('id', p.id);
+
+      setPlaces((prev) =>
+        prev.map((x) =>
+          x.id === p.id ? { ...x, review_summary: json, review_summary_at: now } : x
+        )
+      );
+    } catch {
+      setReviewError('口コミの取得に失敗しました');
+    }
+    setReviewLoading(false);
   };
 
   const openEdit = (p: Place) => {
@@ -730,8 +901,10 @@ function MapInner() {
     if (!placeId) {
       setPoi(null);
       setOpenId(null);
+      clearPreviewReview();
       return;
     }
+    clearPreviewReview();
 
     // Google標準の吹き出しが出るのを抑える
     if (e.stoppable && e.stop) e.stop();
@@ -945,6 +1118,14 @@ function MapInner() {
                   >
                     Googleマップで開く
                   </a>
+                  {p.place_id && (
+                    <button
+                      onClick={() => openReview(p)}
+                      className="text-xs text-blue-600 underline"
+                    >
+                      口コミのまとめを見る
+                    </button>
+                  )}
                   <button
                     onClick={() => openEdit(p)}
                     className="text-xs text-gray-600 underline"
@@ -1010,12 +1191,30 @@ function MapInner() {
               {registered.has(poi.id) ? (
                 <p className="mt-2 text-xs text-gray-500">この店はすでに登録済みです</p>
               ) : (
-                <button
-                  onClick={registerPoi}
-                  className="mt-2 rounded bg-sky-500 px-3 py-1.5 text-xs font-medium text-white"
-                >
-                  この場所を登録
-                </button>
+                <div className="mt-2 flex flex-col items-start gap-1.5">
+                  <button
+                    onClick={registerPoi}
+                    className="rounded bg-sky-500 px-3 py-1.5 text-xs font-medium text-white"
+                  >
+                    この場所を登録
+                  </button>
+                  {!previewReview && (
+                    <button
+                      onClick={() => fetchPreviewReview(poi.id)}
+                      disabled={previewLoading}
+                      className="text-xs text-blue-600 underline disabled:text-gray-400"
+                    >
+                      {previewLoading ? '口コミを確認中...' : '口コミのまとめを見る'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {previewError && <p className="mt-2 text-xs text-red-600">{previewError}</p>}
+              {previewReview && (
+                <div className="mt-2 max-h-56 overflow-y-auto border-t pt-2">
+                  <ReviewBody data={previewReview} />
+                </div>
               )}
             </div>
           </InfoWindow>
@@ -1452,6 +1651,15 @@ function MapInner() {
                     {p.memo}
                   </span>
                 </button>
+                {p.place_id && (
+                  <button
+                    onClick={() => openReview(p)}
+                    aria-label="口コミ"
+                    className="mt-0.5 shrink-0 text-xs text-gray-400 hover:text-blue-600"
+                  >
+                    口コミ
+                  </button>
+                )}
                 <button
                   onClick={() => openEdit(p)}
                   aria-label="編集"
@@ -1554,6 +1762,29 @@ function MapInner() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
+          {/* 登録前に判断できるよう、ここでも口コミを確認できる */}
+          {pending.placeId && (
+            <div className="mb-3 rounded border bg-gray-50 p-2">
+              {!previewReview && !previewLoading && (
+                <button
+                  onClick={() => fetchPreviewReview(pending.placeId!)}
+                  className="text-xs text-blue-600 underline"
+                >
+                  口コミのまとめを見る
+                </button>
+              )}
+              {previewLoading && (
+                <p className="text-xs text-gray-500">口コミを確認中...</p>
+              )}
+              {previewError && <p className="text-xs text-red-600">{previewError}</p>}
+              {previewReview && (
+                <div className="max-h-48 overflow-y-auto">
+                  <ReviewBody data={previewReview} />
+                </div>
+              )}
+            </div>
+          )}
+
           <TagPicker
             tags={tags}
             selected={pendingTagIds}
@@ -1580,6 +1811,104 @@ function MapInner() {
               キャンセル
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ===== 口コミのまとめ ===== */}
+      {reviewTarget && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-30 max-h-[70dvh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 shadow-[0_-2px_12px_rgba(0,0,0,.2)] md:inset-x-auto md:bottom-auto md:right-4 md:top-4 md:max-h-[80dvh] md:w-80 md:rounded-lg md:shadow-lg"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+        >
+          <div className="mb-2 flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-sm font-bold">{reviewTarget.name}</p>
+            <button
+              onClick={() => setReviewTarget(null)}
+              className="shrink-0 text-xs text-gray-400"
+            >
+              閉じる
+            </button>
+          </div>
+
+          {reviewLoading && (
+            <p className="py-6 text-center text-xs text-gray-500">
+              口コミを読み込んでいます...
+            </p>
+          )}
+
+          {reviewError && <p className="py-2 text-xs text-red-600">{reviewError}</p>}
+
+          {reviewData && (
+            <>
+              {reviewData.rating !== null && (
+                <p className="mb-3 text-xs text-gray-600">
+                  <span className="text-amber-500">★</span> {reviewData.rating.toFixed(1)}
+                  {reviewData.count !== null && (
+                    <span className="ml-1 text-gray-400">
+                      （{reviewData.count.toLocaleString('ja-JP')}件）
+                    </span>
+                  )}
+                </p>
+              )}
+
+              {reviewData.good.length > 0 && (
+                <div className="mb-3">
+                  <p className="mb-1 text-xs font-bold text-emerald-700">良い点</p>
+                  <ul className="space-y-1">
+                    {reviewData.good.map((t, i) => (
+                      <li key={`g-${i}`} className="flex gap-1.5 text-xs text-gray-700">
+                        <span className="text-emerald-600">・</span>
+                        <span>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="mb-3">
+                <p className="mb-1 text-xs font-bold text-rose-700">気になる点</p>
+                {reviewData.bad.length > 0 ? (
+                  <ul className="space-y-1">
+                    {reviewData.bad.map((t, i) => (
+                      <li key={`b-${i}`} className="flex gap-1.5 text-xs text-gray-700">
+                        <span className="text-rose-600">・</span>
+                        <span>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    目立った指摘は見つかりませんでした
+                  </p>
+                )}
+              </div>
+
+              {reviewData.note && (
+                <p className="mb-3 rounded bg-gray-50 p-2 text-xs leading-relaxed text-gray-600">
+                  {reviewData.note}
+                </p>
+              )}
+
+              <div className="flex items-center justify-between border-t pt-2">
+                <p className="text-[10px] leading-relaxed text-gray-400">
+                  Googleの口コミをもとにAIが要約しています。
+                  {reviewAt && (
+                    <>
+                      <br />
+                      取得日: {new Date(reviewAt).toLocaleDateString('ja-JP')}
+                    </>
+                  )}
+                </p>
+                <button
+                  onClick={() => openReview(reviewTarget, true)}
+                  disabled={reviewLoading}
+                  className="shrink-0 text-[11px] text-sky-600 underline disabled:text-gray-400"
+                >
+                  更新
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

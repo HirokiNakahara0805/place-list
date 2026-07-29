@@ -202,7 +202,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                       ? '送信中...'
                       : cooldown > 0
                         ? `再送まで ${cooldown} 秒`
-                        : '無料ではじめる'}
+                        : 'ログインコードを送る'}
                   </button>
                 </>
               ) : (
